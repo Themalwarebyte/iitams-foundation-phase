@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "preview": "vite preview",
-    "test:unit": "bun test tests/phase1.test.ts",
+    "test:unit": "bun test tests/phase1.test.ts tests/access.test.ts",
     "test:e2e": "bun test tests/browser.smoke.test.ts",
     "test": "bun test tests/"
   },

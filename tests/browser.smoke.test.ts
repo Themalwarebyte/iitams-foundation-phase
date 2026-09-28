@@ -265,24 +265,28 @@ describe("IITAMS browser smoke", () => {
       requireEnv();
       if (!serverUp || !browser) return;
       const { page } = await newPage();
-      await page.goto(`${BASE}/dashboard`, { waitUntil: "domcontentloaded" });
-      const reached = await visible(
-        page,
-        page.getByRole("heading", { name: "Executive Dashboard" }),
-        25000,
-      );
-      if (!reached) {
+      const reached = await reachDashboard(page);
+      if (!reached.ok) {
         if (SOFT) {
-          console.warn("[e2e:SKIPPED] dashboard not reachable");
+          console.warn(`[e2e:SKIPPED] dashboard not reachable: ${reached.reason}`);
           await page.close();
           return;
         }
-        throw new Error("E2E GATE FAILED: dashboard not reachable for nav test");
+        throw new Error(
+          `E2E GATE FAILED: dashboard not reachable for nav test — ${reached.reason}`,
+        );
       }
 
       await page.getByRole("link", { name: "Risk Register" }).first().click();
       await page.waitForURL("**/risk/register");
-      expect(await visible(page, page.getByRole("navigation", { name: "Breadcrumb" }))).toBe(true);
+      // exact-case: distinguishes the page breadcrumb ("Breadcrumb") from the
+      // top-bar org breadcrumb ("breadcrumb"), both of which exist by design.
+      expect(
+        await visible(
+          page,
+          page.getByRole("navigation", { name: "Breadcrumb", exact: true }),
+        ),
+      ).toBe(true);
       expect(await visible(page, page.getByRole("heading", { name: "Risk Register" }))).toBe(true);
       await page.close();
     },
@@ -295,16 +299,16 @@ describe("IITAMS browser smoke", () => {
       requireEnv();
       if (!serverUp || !browser) return;
       const { page } = await newPage();
-      await page.goto(`${BASE}/dashboard`, { waitUntil: "domcontentloaded" });
-      if (
-        !(await visible(page, page.getByRole("heading", { name: "Executive Dashboard" }), 25000))
-      ) {
+      const reached = await reachDashboard(page);
+      if (!reached.ok) {
         if (SOFT) {
-          console.warn("[e2e:SKIPPED] dashboard not reachable for search test");
+          console.warn(`[e2e:SKIPPED] dashboard not reachable: ${reached.reason}`);
           await page.close();
           return;
         }
-        throw new Error("E2E GATE FAILED: dashboard not reachable for search test");
+        throw new Error(
+          `E2E GATE FAILED: dashboard not reachable for search test — ${reached.reason}`,
+        );
       }
 
       await page.getByRole("button", { name: "Search modules" }).first().click();
@@ -325,22 +329,27 @@ describe("IITAMS browser smoke", () => {
       requireEnv();
       if (!serverUp || !browser) return;
       const { page } = await newPage();
-      await page.goto(`${BASE}/dashboard`, { waitUntil: "domcontentloaded" });
-      if (
-        !(await visible(page, page.getByRole("heading", { name: "Executive Dashboard" }), 25000))
-      ) {
+      const reached = await reachDashboard(page);
+      if (!reached.ok) {
         if (SOFT) {
-          console.warn("[e2e:SKIPPED] dashboard not reachable for notifications test");
+          console.warn(`[e2e:SKIPPED] dashboard not reachable: ${reached.reason}`);
           await page.close();
           return;
         }
-        throw new Error("E2E GATE FAILED: dashboard not reachable for notifications");
+        throw new Error(
+          `E2E GATE FAILED: dashboard not reachable for notifications — ${reached.reason}`,
+        );
       }
 
       await page.getByRole("button", { name: /Notifications/ }).click();
-      expect(await visible(page, page.getByText("Notifications", { exact: true }))).toBe(true);
-      if ((await page.getByRole("button", { name: "Mark all read" }).count()) > 0) {
-        await page.getByRole("button", { name: "Mark all read" }).click();
+      // Scope to the popover dialog: the sidebar also contains a nav link
+      // labelled "Notifications".
+      const popover = page.getByRole("dialog");
+      expect(
+        await visible(page, popover.getByText("Notifications", { exact: true })),
+      ).toBe(true);
+      if ((await popover.getByRole("button", { name: "Mark all read" }).count()) > 0) {
+        await popover.getByRole("button", { name: "Mark all read" }).click();
       }
       await page.close();
     },
@@ -353,16 +362,16 @@ describe("IITAMS browser smoke", () => {
       requireEnv();
       if (!serverUp || !browser) return;
       const { page } = await newPage();
-      await page.goto(`${BASE}/dashboard`, { waitUntil: "domcontentloaded" });
-      if (
-        !(await visible(page, page.getByRole("heading", { name: "Executive Dashboard" }), 25000))
-      ) {
+      const reached = await reachDashboard(page);
+      if (!reached.ok) {
         if (SOFT) {
-          console.warn("[e2e:SKIPPED] dashboard not reachable for logout test");
+          console.warn(`[e2e:SKIPPED] dashboard not reachable: ${reached.reason}`);
           await page.close();
           return;
         }
-        throw new Error("E2E GATE FAILED: dashboard not reachable for logout");
+        throw new Error(
+          `E2E GATE FAILED: dashboard not reachable for logout — ${reached.reason}`,
+        );
       }
 
       await page.getByRole("button", { name: "Account menu" }).click();

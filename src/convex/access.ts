@@ -161,7 +161,7 @@ export async function resolveAccess(ctx: QueryCtx): Promise<AccessContext> {
   // Role: explicit validated field only (never inferred from permission
   // strings). Unknown values fail closed to undefined.
   const rawRole = profile?.role ?? user.role;
-  const role = IITAMS_ROLES.includes(rawRole as IitamsRole)
+  let role = IITAMS_ROLES.includes(rawRole as IitamsRole)
     ? (rawRole as IitamsRole)
     : undefined;
 
@@ -192,6 +192,14 @@ export async function resolveAccess(ctx: QueryCtx): Promise<AccessContext> {
       organizationId = demoOrg._id;
       organizationIsDemo = true;
     }
+  }
+
+  // Guest policy: an anonymous session attached to the demo organization is
+  // granted the read-only "member" tier when no explicit role exists. This
+  // NEVER applies to real users — unprovisioned/unroled real users stay
+  // undefined (deny) until an administrator assigns them a role.
+  if (isGuest && organizationId !== null && role === undefined) {
+    role = "member";
   }
 
   return {

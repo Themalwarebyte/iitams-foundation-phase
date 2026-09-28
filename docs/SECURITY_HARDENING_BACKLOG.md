@@ -14,8 +14,8 @@
 | Multi-tenant isolation | ✅ | All domain rows scoped by `organizationId`; queries filter by acting user's active org |
 | Input validation | ✅ (partial) | Convex validators on all function args; zod available for app-level forms |
 | Output encoding | ✅ | React JSX escaping; no `dangerouslySetInnerHTML` anywhere in the codebase |
-| Audit logging | ✅ | Append-only `auditLogs` with actor/action/entity/timestamp; activity surfaced on dashboard |
-| Secrets separation | ✅ | No secrets in repo; server-only envs via Convex env; `.env*` blocked by platform policy (template documented in `docs/ENVIRONMENT_VARIABLES.md`) |
+| Audit logging | ✅ | **Insert-only** `auditLogs` with actor/action/entity/timestamp; activity surfaced on dashboard. Verified at Phase-1 closure: the only `auditLogs` writes in `src/convex/` are `ctx.db.insert(...)` (notifications.ts `logAction`, seed.ts, session.ts); there are **no** `patch`/`replace`/`delete` calls against `auditLogs`, and no mutation exports update or remove log rows. Enforced as a regression test in `tests/access.test.ts` ("audit log writes are insert-only"). |
+| Secrets separation | ✅ | No secret values in repo (scan-verified, `docs/SECRET_MANAGEMENT.md` §6); server-only envs via Convex env; `.env*` blocked by platform policy (template documented in `docs/ENVIRONMENT_VARIABLES.md`) |
 | Secure headers (self-host) | ✅ | `deploy/nginx.conf`: nosniff, DENY framing, referrer policy, permissions-policy; CSP placeholder documented |
 | No dev credentials in runtime | ✅ | No hard-coded admin passwords anywhere; demo org is synthetic data, not a credential backdoor |
 | Reduced attack surface | ✅ | Static SPA bundle; no server-side templating |
@@ -46,4 +46,29 @@
   disabled** for production (backlog #5).
 - Email delivery of OTPs currently relies on the dev OTP flow (codes visible
   to deployment admins in the Convex dashboard); SMTP wiring is required
-  before production use.
+  before production use. The provider abstraction (`IITAMS_EMAIL_PROVIDER`:
+  `resend` / `freebuff_dev` / `none`) landed at closure; production must run
+  `resend` with `RESEND_API_KEY` set server-side only.
+
+## 4. Tenancy & provisioning invariants (verified at Phase-1 closure)
+
+These invariants are part of the security baseline and are guarded by
+`tests/access.test.ts`:
+
+1. **No first-organization fallback.** `resolveAccess` derives the active org
+   ONLY from an explicit `userProfiles.organizationId`; dangling references
+   are denied. Unprovisioned users get no tenant data and see an explicit
+   "awaiting provisioning" state.
+2. **Explicit role model.** Roles come from the validated `role` field
+   (profile → user fallback) checked against the `IITAMS_ROLES` registry
+   (`admin` / `user` / `member`); unknown roles fail closed. Roles are never
+   inferred from permission strings.
+3. **Guests are demo-only.** Anonymous sessions require
+   `IITAMS_ALLOW_GUEST_AUTH=true`, attach only to the `IITAMS-DEMO`
+   organization (`isDemo === true`), and default to the read-only `member`
+   tier. Real users are never auto-attached to any organization; the guest
+   join mutation refuses non-anonymous users.
+4. **Two credentials exposed historically require owner rotation/revocation**
+   (deletion ≠ safety): the dotenv key material from the former `.env.keys`
+   file and the dev OTP API key formerly hard-coded in
+   `src/convex/auth/emailOtp.ts`. See `docs/SECRET_MANAGEMENT.md` §4.

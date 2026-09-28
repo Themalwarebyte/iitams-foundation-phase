@@ -181,7 +181,11 @@ export function VisualBackground({
   return (
     <div
       role="img"
-      aria-label={isStatic ? "Decorative network background (static)" : ariaLabel}
+      aria-label={
+        isStatic
+          ? `${ariaLabel} (static)`
+          : ariaLabel
+      }
       className={cn(
         "relative overflow-hidden bg-ink text-white",
         variant === "full" ? "min-h-full" : "min-h-[220px]",

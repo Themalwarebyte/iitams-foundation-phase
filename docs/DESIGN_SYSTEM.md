@@ -108,6 +108,23 @@ tinted background with a strong-coloured border for dense tables.
 outline badges (see `ClassificationBadge`). Phase 1 renders the indicators;
 enforcement policy attaches to the evidence module later.
 
+### 1.5 The 5×5 risk scoring model (authoritative bands)
+
+Risk score = `likelihood (1–5) × impact (1–5)` → 1–25. Bands are canonical
+across the register, heat map and dashboard:
+
+| Band | Residual score | Cells (L×I) | Server rule (src/convex/dashboard.ts) |
+| --- | --- | --- | --- |
+| **Critical** | **15–25** | (3,5) (4,4) (4,5) (5,3) (5,4) (5,5) | `residualLikelihood * residualImpact >= 15` |
+| High | 10–14 | (2,5) (3,3) (3,4) (4,2) (4,3) | — |
+| Medium | 4–9 | (2,2) (2,3) (2,4) (3,2) (4,1) (5,1)… | — |
+| Low | 1–3 | (1,1) (1,2) (2,1) (3,1) | — |
+
+The dashboard KPI `criticalRisks` counts open risks in the **critical band
+only (≥15)**. A score of 12 — (3,4)/(4,3) — is **high**, not critical; an
+earlier draft that counted `>= 12` was redundant with this rule and was
+corrected. `RiskScoreBadge` colours by the same bands.
+
 ---
 
 ## 2. Typography

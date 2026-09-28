@@ -139,8 +139,8 @@ export default function Dashboard() {
                 value={data.kpis.criticalRisks}
                 icon={ShieldAlert}
                 tone="critical"
-                hint="Residual score 12+ of 25"
-                tooltip="Open risks whose residual likelihood × impact reaches the critical band."
+                hint="Residual score 15+ of 25"
+                tooltip="Open risks whose residual likelihood × impact reaches the critical band (score 15–25)."
                 href="/risk/heat-map"
               />
               <KpiCard

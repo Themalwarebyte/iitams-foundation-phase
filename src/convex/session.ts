@@ -107,9 +107,13 @@ export const getSession = query({
 });
 
 /**
- * Attach the signed-in user to the demo organization with an effective role,
+ * Attach the signed-in GUEST to the demo organization with an effective role,
  * so permission-aware navigation and org context work immediately after the
- * first sign-in. No-ops if the user already has a profile.
+ * first sign-in. This is the single explicit provisioning path for guest
+ * sessions (called by AppLayout); it never touches real users' profiles and
+ * never attaches to any organization except the `IITAMS-DEMO` org, which must
+ * be explicitly flagged `isDemo`. Real users are provisioned by an
+ * administrator (Phase 2 workflow), not by this mutation.
  */
 export const joinDemoOrganization = mutation({
   args: {},
@@ -117,7 +121,12 @@ export const joinDemoOrganization = mutation({
     const access = await resolveAccess(ctx);
     const user = access.user;
     if (!user) throw new Error("Not authenticated");
-    if (access.isGuest && !guestAuthEnabled()) {
+    if (!user.isAnonymous) {
+      // Real users are provisioned explicitly by an administrator, never by
+      // this guest bootstrap — prevents auto-assignment on first sign-in.
+      return { joined: false, organizationId: null };
+    }
+    if (!guestAuthEnabled()) {
       throw new Error("Guest access is disabled on this deployment");
     }
 
@@ -125,8 +134,8 @@ export const joinDemoOrganization = mutation({
       .query("userProfiles")
       .withIndex("userId", (q) => q.eq("userId", user._id))
       .unique();
-    if (existingProfile) {
-      return { joined: false, organizationId: existingProfile.organizationId ?? null };
+    if (existingProfile && existingProfile.organizationId) {
+      return { joined: false, organizationId: existingProfile.organizationId };
     }
 
     const org = await ctx.db
@@ -138,13 +147,23 @@ export const joinDemoOrganization = mutation({
       return { joined: false, organizationId: null };
     }
 
-    await ctx.db.insert("userProfiles", {
-      userId: user._id,
-      organizationId: org._id,
-      role: user.role ?? "member",
-      jobTitle: "Assurance Officer",
-      lastSeenAt: Date.now(),
-    });
+    if (existingProfile) {
+      // Legacy/incomplete guest profile with no organization assignment:
+      // complete provisioning instead of leaving the guest stuck unprovisioned.
+      await ctx.db.patch(existingProfile._id, {
+        organizationId: org._id,
+        role: existingProfile.role ?? user.role ?? "member",
+        lastSeenAt: Date.now(),
+      });
+    } else {
+      await ctx.db.insert("userProfiles", {
+        userId: user._id,
+        organizationId: org._id,
+        role: user.role ?? "member", // guests resolve to the read-only tier
+        jobTitle: "Assurance Officer",
+        lastSeenAt: Date.now(),
+      });
+    }
 
     await ctx.db.insert("auditLogs", {
       organizationId: org._id,

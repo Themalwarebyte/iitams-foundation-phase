@@ -100,11 +100,12 @@ dependency on any development platform**:
 
 ```bash
 export VITE_CONVEX_URL=https://<your-deployment>.convex.cloud
-docker compose up -d --build      # web on :8080, PostgreSQL provisioned
+docker compose up -d --build      # web tier only, on :8080
 ```
 
-Details — topology, backups, export/import, and the standard alternatives for
-every development convenience — in
+Details — topology (including the optional `reporting` PostgreSQL mirror,
+which is **not** started by default), backups, export/import, and the standard
+alternatives for every development convenience — in
 [`docs/SELF_HOSTING_ARCHITECTURE.md`](docs/SELF_HOSTING_ARCHITECTURE.md).
 Web tier assets: [`Dockerfile`](Dockerfile), [`docker-compose.yml`](docker-compose.yml),
 [`deploy/nginx.conf`](deploy/nginx.conf).

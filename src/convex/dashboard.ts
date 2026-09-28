@@ -119,9 +119,11 @@ export const executive = query({
 
     // --- Risk ----------------------------------------------------------
     const openRisks = risks.filter((r) => r.status !== "closed");
+    // Critical band of the 5×5 model: residual score 15–25 (see
+    // docs/DESIGN_SYSTEM.md severity matrix). Scores of exactly 15 arise from
+    // (3,5) and (5,3); 12 (3,4)/(4,3) is HIGH, not critical.
     const criticalRisks = openRisks.filter(
-      (r) => r.residualLikelihood * r.residualImpact >= 15 ||
-        r.residualLikelihood * r.residualImpact >= 12,
+      (r) => r.residualLikelihood * r.residualImpact >= 15,
     );
     const riskHeatCells: Record<string, number> = {};
     for (const r of openRisks) {

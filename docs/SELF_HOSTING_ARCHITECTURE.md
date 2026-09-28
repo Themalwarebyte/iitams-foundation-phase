@@ -4,6 +4,45 @@
 > self-hosting.** The complete Convex backend must eventually run on
 > infrastructure controlled by the project owner.
 
+## A. Two operating modes (development vs final production)
+
+IITAMS runs in two clearly separated modes. Conflating them is a defect; this
+section is the authoritative distinction.
+
+### A.1 Current development mode (this environment)
+
+| Aspect | State |
+| --- | --- |
+| Web tier | Vite dev server (managed by the development platform) |
+| Backend | Managed Convex dev deployment (`VITE_CONVEX_URL` points at it) |
+| Dev tooling | Vly toolbar / instrumentation / route bridge — loaded **only** when `import.meta.env.DEV` is true (`src/dev/DevTools.tsx`); the `vlyPlugin()` Vite plugin is **excluded from production builds** (`vite.config.ts`) |
+| Dev conveniences | Platform preview hosting, platform secrets UI, guest sign-in (`IITAMS_ALLOW_GUEST_AUTH=true`), dev OTP adapter (`IITAMS_EMAIL_PROVIDER=freebuff_dev`, additionally gated by `IITAMS_ENABLE_FREEBUFF_DEVTOOLS=true`) |
+| Auth | Own Convex Auth email-OTP provider; the platform JWT provider is only pushed when `IITAMS_ENABLE_FREEBUFF_DEVTOOLS=true` (production default: absent/false) |
+
+### A.2 Final production mode (self-hosted target)
+
+| Aspect | State |
+| --- | --- |
+| Web tier | Static SPA from `dist/` served by nginx (`Dockerfile`) — no dev tooling, no platform code |
+| Backend | Self-hosted Convex (owner infrastructure) targeted purely via `VITE_CONVEX_URL` |
+| Dev tooling | None present in the bundle (verified: production `dist/` scans clean for platform markers) |
+| Dev conveniences | None: guest auth disabled (`IITAMS_ALLOW_GUEST_AUTH` unset), OTP via Resend (`IITAMS_EMAIL_PROVIDER=resend` + `RESEND_API_KEY`) or `none`, platform JWT provider absent |
+| Runtime coupling | **None verified** — the production bundle is a static SPA plus a Convex endpoint URL; see §6 for evidence |
+
+### A.3 Mode checklist
+
+Before declaring production readiness, confirm:
+
+- [ ] `bun run build` output (`dist/`) contains no platform markers
+      (`freebuff`, `vly`, `auth.freebuff.app`, `@vly-ai`) — scan command in
+      `docs/SECRET_MANAGEMENT.md` §6
+- [ ] `IITAMS_ALLOW_GUEST_AUTH` unset/false on the deployment
+- [ ] `IITAMS_ENABLE_FREEBUFF_DEVTOOLS` unset/false
+- [ ] `IITAMS_EMAIL_PROVIDER=resend` (or `none`) with `RESEND_API_KEY` set
+      server-side only
+- [ ] `IITAMS-DEMO` organization absent or clearly flagged; demo seed not run
+      against production data
+
 ## 0. Datastore strategy (authoritative)
 
 | Concern | Strategy |
@@ -97,9 +136,26 @@ Test restores quarterly.
 | Managed Convex dev deployment | backend iteration in this environment | self-hosted Convex or Convex managed under your own account |
 | Platform-managed preview/hosting | this Phase-1 working preview | nginx static hosting in `Dockerfile` |
 | Platform secrets UI | dev-phase secret handling | your own secret store (Vault, SOPS, Docker secrets) |
+| Guest sign-in + dev OTP adapter | friction-free evaluation of the preview | real email-OTP sign-in via Resend; guest path refuses to run without both dev flags |
 
-None is a **runtime** dependency: the built application is a static SPA plus
-a Convex endpoint, fully reproducible on standard infrastructure —
+**Runtime coupling: none (verified at Phase-1 closure).** Evidence:
+
+1. `vite.config.ts` excludes `vlyPlugin()` from build invocations
+   (`process.argv` contains `build`); it runs in dev only.
+2. `src/main.tsx` imports `src/dev/DevTools.tsx` lazily and only under
+   `import.meta.env.DEV`; the module is unreachable in the production bundle.
+3. `src/lib/vly-integrations.ts` was removed; `@vly-ai/integrations` and
+   `@zumer/snapdom` are devDependencies only.
+4. `src/convex/auth.config.ts` adds the platform JWT provider only when
+   `IITAMS_ENABLE_FREEBUFF_DEVTOOLS === "true"`.
+5. `src/convex/auth/emailOtp.ts` selects the delivery provider explicitly
+   (`resend` / `freebuff_dev` / `none`); the dev adapter requires BOTH dev
+   flags and reads its key from `VLY_OTP_API_KEY` — no hard-coded endpoints
+   or keys in the delivery path.
+6. Production-build scan of `dist/` returns **0 files** matching
+   `freebuff`, `vly`, `auth.freebuff.app`, `@vly-ai`.
+
+The built application is a static SPA plus a Convex endpoint —
 `VITE_CONVEX_URL` decides where the backend lives.
 
 ## 7. Self-hosting smoke test
