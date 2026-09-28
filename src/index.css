@@ -1,0 +1,313 @@
+/* DO NOT CHANGE */
+@import "tailwindcss";
+@import "tw-animate-css";
+@custom-variant dark (&:is(.dark *));
+
+/* DO NOT CHANGE */
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  /* IITAMS semantic tokens (severity, risk, classification) */
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-critical: var(--critical);
+  --color-critical-foreground: var(--critical-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  /* Typography */
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-serif: "Source Serif 4", ui-serif, Georgia, Cambria, "Times New Roman",
+    serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+}
+
+/* CHANGE VALUES FOR THEME */
+:root {
+  --radius: 0.625rem;
+
+  /*
+   * IITAMS design tokens — Modern theme.
+   * Primary #005A9A is sampled from the live MICDE site (ict.go.ke, Dec 2024
+   * capture): it colours the ministry's topbar/header (`background: #005a9a`)
+   * and all navigation/menu links. Deep blue #004E98 and sky accent #4EB5F5
+   * (with tints #C2E9FF / #E1F2FF) come from the same stylesheet; the assurance
+   * green #006341 (`.text-theme`), Kenya-flag gold #FFD900 (footer links) and
+   * dark teal-neutral #0C3D49 complete the palette. Neutral ramp is a quiet,
+   * slightly blue-tinted slate to keep data-dense dashboards calm.
+   * See docs/DESIGN_SYSTEM.md for the full extraction log.
+   */
+  --background: oklch(0.988 0.003 240);
+  --foreground: oklch(0.235 0.02 251);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.235 0.02 251);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.235 0.02 251);
+  --primary: oklch(0.478 0.096 240);
+  --primary-foreground: oklch(0.985 0.005 240);
+  --secondary: oklch(0.945 0.022 232);
+  --secondary-foreground: oklch(0.375 0.08 241);
+  --muted: oklch(0.966 0.005 240);
+  --muted-foreground: oklch(0.51 0.022 249);
+  --accent: oklch(0.955 0.018 230);
+  --accent-foreground: oklch(0.34 0.09 241);
+  --destructive: oklch(0.55 0.2 25);
+  --border: oklch(0.912 0.008 244);
+  --input: oklch(0.912 0.008 244);
+  --ring: oklch(0.478 0.096 240);
+  --chart-1: oklch(0.478 0.096 240);
+  --chart-2: oklch(0.7 0.132 233);
+  --chart-3: oklch(0.46 0.09 165);
+  --chart-4: oklch(0.73 0.135 82);
+  --chart-5: oklch(0.55 0.2 25);
+  --sidebar: oklch(0.978 0.005 240);
+  --sidebar-foreground: oklch(0.28 0.022 250);
+  --sidebar-primary: oklch(0.478 0.096 240);
+  --sidebar-primary-foreground: oklch(0.985 0.005 240);
+  --sidebar-accent: oklch(0.945 0.022 232);
+  --sidebar-accent-foreground: oklch(0.34 0.09 241);
+  --sidebar-border: oklch(0.918 0.008 244);
+  --sidebar-ring: oklch(0.478 0.096 240);
+
+  /* Semantic status tokens (not colour-alone: paired with icons/labels) */
+  --success: oklch(0.46 0.09 165);
+  --success-foreground: oklch(0.985 0.005 160);
+  --warning: oklch(0.62 0.145 75);
+  --warning-foreground: oklch(0.27 0.06 75);
+  --critical: oklch(0.5 0.21 25);
+  --critical-foreground: oklch(0.985 0.005 25);
+  --info: oklch(0.6 0.1 240);
+  --info-foreground: oklch(0.985 0.005 240);
+
+  /* Decorative background surfaces */
+  --ink: oklch(0.26 0.045 243);
+  --ink-deep: oklch(0.2 0.04 245);
+  --grid-line: oklch(0.478 0.096 240 / 7%);
+  --aurora-1: oklch(0.478 0.096 240 / 20%);
+  --aurora-2: oklch(0.7 0.132 233 / 16%);
+}
+
+.dark {
+  --background: oklch(0.17 0.018 250);
+  --foreground: oklch(0.955 0.005 240);
+  --card: oklch(0.213 0.02 250);
+  --card-foreground: oklch(0.955 0.005 240);
+  --popover: oklch(0.213 0.02 250);
+  --popover-foreground: oklch(0.955 0.005 240);
+  --primary: oklch(0.72 0.12 233);
+  --primary-foreground: oklch(0.18 0.04 245);
+  --secondary: oklch(0.27 0.025 248);
+  --secondary-foreground: oklch(0.93 0.01 236);
+  --muted: oklch(0.26 0.02 249);
+  --muted-foreground: oklch(0.72 0.02 245);
+  --accent: oklch(0.29 0.035 244);
+  --accent-foreground: oklch(0.93 0.02 232);
+  --destructive: oklch(0.68 0.18 25);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.72 0.12 233);
+  --chart-1: oklch(0.72 0.12 233);
+  --chart-2: oklch(0.62 0.09 165);
+  --chart-3: oklch(0.73 0.135 82);
+  --chart-4: oklch(0.478 0.096 240);
+  --chart-5: oklch(0.55 0.2 25);
+  --sidebar: oklch(0.195 0.02 250);
+  --sidebar-foreground: oklch(0.93 0.008 240);
+  --sidebar-primary: oklch(0.72 0.12 233);
+  --sidebar-primary-foreground: oklch(0.18 0.04 245);
+  --sidebar-accent: oklch(0.27 0.025 248);
+  --sidebar-accent-foreground: oklch(0.93 0.01 236);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.72 0.12 233);
+
+  --success: oklch(0.72 0.11 165);
+  --success-foreground: oklch(0.17 0.04 165);
+  --warning: oklch(0.79 0.13 80);
+  --warning-foreground: oklch(0.24 0.06 80);
+  --critical: oklch(0.68 0.18 25);
+  --critical-foreground: oklch(0.16 0.03 25);
+  --info: oklch(0.72 0.1 240);
+  --info-foreground: oklch(0.16 0.03 240);
+
+  --ink: oklch(0.22 0.045 243);
+  --ink-deep: oklch(0.16 0.04 245);
+  --grid-line: oklch(0.72 0.12 233 / 9%);
+  --aurora-1: oklch(0.478 0.096 240 / 28%);
+  --aurora-2: oklch(0.7 0.132 233 / 18%);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  button:not([disabled]),
+  [role="button"]:not([disabled]) {
+    cursor: pointer;
+  }
+  /* Visible keyboard focus for WCAG 2.1 AA (never removed) */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: var(--primary);
+    color: var(--primary-foreground);
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * IITAMS decorative background utilities (see VisualBackground component).
+ * Purely presentational; all motion is disabled under reduced motion.
+ * ------------------------------------------------------------------------- */
+
+/* Fine engineering grid — data-centre / technical drawing feel */
+.bg-grid-network {
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+
+/* Larger accent grid used on section headers */
+.bg-grid-dense {
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+/* Soft aurora glow blobs behind hero content */
+.bg-aurora::before {
+  content: "";
+  position: absolute;
+  inset: -30%;
+  background:
+    radial-gradient(42% 38% at 18% 22%, var(--aurora-1) 0%, transparent 70%),
+    radial-gradient(38% 42% at 82% 68%, var(--aurora-2) 0%, transparent 72%),
+    radial-gradient(30% 30% at 55% 12%, var(--aurora-2) 0%, transparent 70%);
+  animation: aurora-drift 26s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+@keyframes aurora-drift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    transform: translate3d(2.5%, -2.5%, 0) scale(1.06);
+  }
+}
+
+/* Slow cinematic pan for photographic hero layers (Kenyan ICT imagery) */
+@keyframes cinematic-pan {
+  0% {
+    transform: scale(1.08) translate3d(0, 0, 0);
+  }
+  100% {
+    transform: scale(1.16) translate3d(-2.2%, -1.6%, 0);
+  }
+}
+
+/* Gentle cross-fade between stacked background images */
+@keyframes bg-crossfade {
+  0%,
+  28% {
+    opacity: 1;
+  }
+  38%,
+  88% {
+    opacity: 0;
+  }
+  98%,
+  100% {
+    opacity: 1;
+  }
+}
+
+/* Slow scanline shimmer across status/hero banners */
+@keyframes scan-sweep {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(220%);
+  }
+}
+
+/* Respect users who prefer reduced motion: freeze every decorative effect */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .bg-aurora::before {
+    animation: none;
+  }
+  [data-cinematic],
+  .bg-aurora::before {
+    animation-duration: 0.001s;
+    animation-iteration-count: 1;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Screen-reader-only helper for status/icon text alternatives */
+.sr-only-focusable:not(:focus):not(:focus-within) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}

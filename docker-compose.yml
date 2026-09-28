@@ -1,0 +1,62 @@
+# ---------------------------------------------------------------------------
+# IITAMS — Docker Compose for self-hosted deployments
+#
+# The web tier is a stateless static SPA behind nginx. The application backend
+# is Convex (self-hostable or Convex-managed) — point VITE_CONVEX_URL at your
+# deployment and rebuild. See docs/SELF_HOSTING_ARCHITECTURE.md.
+#
+# Usage:
+#   VITE_CONVEX_URL=https://<your-deployment>.convex.cloud docker compose up -d --build
+# ---------------------------------------------------------------------------
+
+services:
+  web:
+    build:
+      context: .
+      args:
+        VITE_CONVEX_URL: ${VITE_CONVEX_URL:?Set VITE_CONVEX_URL to your Convex deployment URL}
+    image: iitams-web:latest
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    # The SPA itself is stateless; mount a volume if you add local artefacts
+    # (e.g. nginx TLS material terminated here instead of at the proxy).
+    volumes:
+      - web-logs:/var/log/nginx
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL is provisioned for the application's future relational needs
+  # (reporting exports, integration stores). The Phase-1 system of record is
+  # Convex; this service keeps the compose file honest about the production
+  # target database without wiring it prematurely.
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: iitams
+      POSTGRES_USER: iitams
+      # Provide the password via an env file or secret manager — never inline.
+      POSTGRES_PASSWORD_FILE: /run/secrets/pg_password
+    secrets:
+      - pg_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U iitams -d iitams"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+  web-logs:
+
+secrets:
+  pg_password:
+    file: ./secrets/pg_password.txt
