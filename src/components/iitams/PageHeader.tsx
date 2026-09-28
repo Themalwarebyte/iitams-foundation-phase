@@ -1,10 +1,9 @@
 import { Link } from "react-router";
-import { ChevronRight, Home } from "lucide-react";
+import { ChevronRight, Home, Construction } from "lucide-react";
 import { NAV_INDEX } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Construction } from "lucide-react";
 import {
   Card,
   CardContent,

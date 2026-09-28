@@ -1,7 +1,6 @@
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "./AppSidebar";
 import { TopBar } from "./TopBar";
-import { Toaster } from "@/components/ui/sonner";
 
 /**
  * Authenticated shell: sidebar + top bar + content. Every protected IITAMS
@@ -20,7 +19,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </SidebarInset>
-      <Toaster />
     </SidebarProvider>
   );
 }
