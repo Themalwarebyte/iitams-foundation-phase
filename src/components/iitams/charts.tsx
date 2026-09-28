@@ -151,10 +151,6 @@ export function FrameworkBarChart({
   data: { name: string; score: number }[];
   className?: string;
 }) {
-  const config = {
-    score: { label: "Compliance", color: "var(--chart-2)" },
-  } satisfies ChartConfig;
-
   return (
     <Card className={cn(chartCard, className)}>
       <CardHeader>

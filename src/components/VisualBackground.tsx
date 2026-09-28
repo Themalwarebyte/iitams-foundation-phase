@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { motion, useReducedMotion } from "framer-motion";
+import { useReducedMotion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 /**
@@ -57,13 +57,18 @@ export function VisualBackground({
   children,
 }: VisualBackgroundProps) {
   const prefersReducedMotion = useReducedMotion();
-  const [reducedMotion, setReducedMotion] = useState(false);
+  // Initialize from the media query lazily (no setState-in-effect cascade);
+  // the effect below only subscribes to later changes.
+  const [reducedMotion, setReducedMotion] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  );
 
   useEffect(() => {
     // Belt and braces: also honor the media query directly so the canvas
     // freezes even if Framer's provider isn't mounted yet.
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setReducedMotion(mq.matches);
     const onChange = (e: MediaQueryListEvent) => setReducedMotion(e.matches);
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);

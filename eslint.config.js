@@ -30,4 +30,21 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // Stock shadcn/ui primitives: the init-shipped implementations of
+    // useIsMobile, SidebarSkeleton and the embla carousel deliberately
+    // initialise state from media queries / props inside effects. The
+    // react-compiler-style diagnostics flag these idiomatically-correct
+    // patterns; relaxing here documents the exception without weakening the
+    // rules for application code.
+    files: [
+      "src/components/ui/carousel.tsx",
+      "src/components/ui/sidebar.tsx",
+      "src/hooks/use-mobile.ts",
+    ],
+    rules: {
+      "react-hooks/set-state-in-effect": "off",
+      "react-hooks/purity": "off",
+    },
+  },
 );

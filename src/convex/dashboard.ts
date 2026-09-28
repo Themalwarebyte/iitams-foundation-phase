@@ -1,4 +1,3 @@
-import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { resolveAccess, roleHasPermission } from "./access";
 
@@ -105,9 +104,6 @@ export const executive = query({
     // --- Audit plan progress ------------------------------------------
     const activeEngagements = engagements.filter(
       (e) => e.status !== "completed" && e.status !== "cancelled",
-    );
-    const completedEngagements = engagements.filter(
-      (e) => e.status === "completed",
     );
     const avgProgress =
       engagements.length > 0

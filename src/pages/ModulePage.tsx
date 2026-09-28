@@ -6,9 +6,6 @@ import {
   ModulePlaceholder,
   PageHeader,
 } from "@/components/iitams/PageHeader";
-import { AppSidebar } from "@/components/iitams/AppSidebar";
-import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
-import { TopBar } from "@/components/iitams/TopBar";
 import { NAV_INDEX } from "@/lib/nav";
 
 /**
@@ -60,15 +57,5 @@ export default function ModulePage({ path }: { path: string }) {
     </>
   );
 
-  return (
-    <SidebarProvider>
-      <AppSidebar />
-      <SidebarInset>
-        <TopBar />
-        <main id="main-content" className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
-          {content}
-        </main>
-      </SidebarInset>
-    </SidebarProvider>
-  );
+  return <AppLayout>{content}</AppLayout>;
 }
