@@ -1,13 +1,24 @@
-import '@vly-ai/integrations';
 import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
-import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { ConvexReactClient } from "convex/react";
 import React, { StrictMode, useEffect, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Route, Routes, useLocation } from "react-router";
+import { BrowserRouter, Route, Routes } from "react-router";
 import "./index.css";
+
+// ---------------------------------------------------------------------------
+// Freebuff/Vly development tooling — DEV BUNDLES ONLY. All Vly-specific code
+// lives in src/dev/DevTools.tsx, which is dynamically imported only when
+// `import.meta.env.DEV` is true. A production build never requests that
+// module, so dist/ output contains no Vly/Freebuff code, endpoints or names.
+// ---------------------------------------------------------------------------
+const DevTools = import.meta.env.DEV
+  ? lazy(() => import("./dev/DevTools.tsx").then((m) => ({ default: m.DevTools })))
+  : null;
+const DevRouteBridge = import.meta.env.DEV
+  ? lazy(() => import("./dev/DevTools.tsx").then((m) => ({ default: m.DevRouteBridge })))
+  : null;
 
 // Lazy load route components for better code splitting
 const Landing = lazy(() => import("./pages/Landing.tsx"));
@@ -25,25 +36,7 @@ function RouteLoading() {
   );
 }
 
-/** Silent error boundary — if VlyToolbar crashes it renders nothing instead of
- *  crashing the whole app (e.g. hook errors in the browser runtime). */
-class ToolbarErrorBoundary extends React.Component<
-  { children: React.ReactNode },
-  { hasError: boolean }
-> {
-  state = { hasError: false };
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
-  componentDidCatch(err: Error) {
-    console.warn("[VlyToolbar] Caught error, toolbar disabled:", err.message);
-  }
-  render() {
-    return this.state.hasError ? null : this.props.children;
-  }
-}
-
-/** Hard guard so runtime errors never leave the preview as a blank page. */
+/** Hard guard so runtime errors never leave the app as a blank page. */
 class RootErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { hasError: boolean; message: string; stack: string }
@@ -57,14 +50,14 @@ class RootErrorBoundary extends React.Component<
     };
   }
   componentDidCatch(err: Error) {
-    console.error("[Preview] Root crash:", err);
+    console.error("[IITAMS] Root crash:", err);
   }
   render() {
     if (this.state.hasError) {
       return (
         <div className="min-h-screen flex items-center justify-center bg-background text-foreground p-6">
           <div className="max-w-lg text-center">
-            <p className="text-sm font-semibold">Preview runtime error</p>
+            <p className="text-sm font-semibold">Application error</p>
             <p className="mt-2 text-xs text-muted-foreground break-words">
               {this.state.message}
             </p>
@@ -146,39 +139,21 @@ const MODULE_ROUTES = [
   "/admin/audit-logs",
 ] as const;
 
-function RouteSyncer() {
-  const location = useLocation();
-  useEffect(() => {
-    window.parent.postMessage(
-      { type: "iframe-route-change", path: location.pathname },
-      "*",
-    );
-  }, [location.pathname]);
-
-  useEffect(() => {
-    function handleMessage(event: MessageEvent) {
-      if (event.data?.type === "navigate") {
-        if (event.data.direction === "back") window.history.back();
-        if (event.data.direction === "forward") window.history.forward();
-      }
-    }
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, []);
-
-  return null;
-}
-
-
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <RootErrorBoundary>
-      <ToolbarErrorBoundary>
-        <VlyToolbar />
-      </ToolbarErrorBoundary>
+      {DevTools && (
+        <Suspense fallback={null}>
+          <DevTools />
+        </Suspense>
+      )}
       <ConvexAuthProvider client={convex}>
         <BrowserRouter>
-          <RouteSyncer />
+          {DevRouteBridge && (
+            <Suspense fallback={null}>
+              <DevRouteBridge />
+            </Suspense>
+          )}
           <Suspense fallback={<RouteLoading />}>
             <Routes>
               <Route path="/" element={<Landing />} />

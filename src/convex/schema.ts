@@ -133,15 +133,19 @@ const schema = defineSchema(
     }).index("code", ["code"]),
 
     // Profile extension for the auth user (separate from auth-owned fields).
-    // Presence of a profile row marks the user as a provisioned IITAMS user;
-    // users without one are treated as demo/guest accounts.
+    // Presence of a profile row with an explicit organizationId marks the user
+    // as provisioned; organization access requires it (no fallbacks).
     userProfiles: defineTable({
       userId: v.id("users"),
       organizationId: v.optional(v.id("organizations")),
+      // Explicit validated role — never inferred from permission strings.
+      role: v.optional(roleValidator),
       jobTitle: v.optional(v.string()),
       department: v.optional(v.string()),
       phone: v.optional(v.string()),
-      permissions: v.optional(v.array(v.string())),
+      // Deliberate permission overrides (grants), separate from role
+      // assignment. Evaluated explicitly where a feature requires it.
+      permissionOverrides: v.optional(v.array(v.string())),
       lastSeenAt: v.optional(v.number()),
     }).index("userId", ["userId"]),
 
@@ -399,7 +403,9 @@ const schema = defineSchema(
     }).index("by_organization", ["organizationId"]),
   },
   {
-    schemaValidation: false,
+    // Production behaviour: documents are validated against this schema on
+    // every write. Demo seed data satisfies these validators.
+    schemaValidation: true,
   },
 );
 

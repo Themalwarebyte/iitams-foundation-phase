@@ -1,10 +1,8 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import {
-  getActiveOrganizationId,
-  getCurrentUserOrNull,
-  getEffectiveRole,
   guestAuthEnabled,
+  resolveAccess,
   roleHasPermission,
 } from "./access";
 
@@ -25,35 +23,64 @@ export const getAuthPolicy = query({
 export const getSession = query({
   args: {},
   handler: async (ctx) => {
-    const user = await getCurrentUserOrNull(ctx);
+    const access = await resolveAccess(ctx);
+    const user = access.user;
     if (!user) return null;
 
-    // Production-safe guest policy: anonymous users get no session context at
-    // all when guest auth is disabled, so protected data is unreachable.
-    if (user.isAnonymous === true && !guestAuthEnabled()) {
+    // Production guest policy: anonymous users get no session context at all
+    // when guest auth is disabled — protected data is unreachable.
+    if (access.isGuest && !guestAuthEnabled()) {
       return null;
     }
 
-    const organizationId = await getActiveOrganizationId(ctx);
-    const role = await getEffectiveRole(ctx);
+    // Authenticated but not provisioned: a real user with no explicit
+    // organization assignment. The UI shows a safe "awaiting provisioning"
+    // state and no tenant data is resolved. Never fall back to another org.
+    if (!access.isProvisioned) {
+      return {
+        userId: user._id,
+        name: user.name ?? user.email ?? "Unnamed user",
+        email: user.email ?? null,
+        isAnonymous: user.isAnonymous ?? false,
+        role: null,
+        isProvisioned: false,
+        awaitingProvisioning: true,
+        organization: null,
+        permissions: {
+          dashboard: false,
+          workspace: false,
+          audit: false,
+          risk: false,
+          compliance: false,
+          cyber: false,
+          bcm: false,
+          reports: false,
+          admin: false,
+          adminManage: false,
+        },
+        jobTitle: null,
+      };
+    }
 
-    const org = organizationId ? await ctx.db.get(organizationId) : null;
+    const org = access.organizationId
+      ? await ctx.db.get(access.organizationId)
+      : null;
     const profile = await ctx.db
       .query("userProfiles")
       .withIndex("userId", (q) => q.eq("userId", user._id))
       .unique();
 
     const permissions = {
-      dashboard: roleHasPermission(role, "dashboard.view"),
-      workspace: roleHasPermission(role, "workspace.view"),
-      audit: roleHasPermission(role, "audit.view"),
-      risk: roleHasPermission(role, "risk.view"),
-      compliance: roleHasPermission(role, "compliance.view"),
-      cyber: roleHasPermission(role, "cyber.view"),
-      bcm: roleHasPermission(role, "bcm.view"),
-      reports: roleHasPermission(role, "reports.view"),
-      admin: roleHasPermission(role, "admin.view"),
-      adminManage: roleHasPermission(role, "admin.manage"),
+      dashboard: roleHasPermission(access.role, "dashboard.view"),
+      workspace: roleHasPermission(access.role, "workspace.view"),
+      audit: roleHasPermission(access.role, "audit.view"),
+      risk: roleHasPermission(access.role, "risk.view"),
+      compliance: roleHasPermission(access.role, "compliance.view"),
+      cyber: roleHasPermission(access.role, "cyber.view"),
+      bcm: roleHasPermission(access.role, "bcm.view"),
+      reports: roleHasPermission(access.role, "reports.view"),
+      admin: roleHasPermission(access.role, "admin.view"),
+      adminManage: roleHasPermission(access.role, "admin.manage"),
     };
 
     return {
@@ -61,10 +88,18 @@ export const getSession = query({
       name: user.name ?? user.email ?? "Unnamed user",
       email: user.email ?? null,
       isAnonymous: user.isAnonymous ?? false,
-      role: role ?? "member",
+      role: access.role ?? null,
+      isProvisioned: true,
+      awaitingProvisioning: false,
       permissions,
       organization: org
-        ? { id: org._id, name: org.name, code: org.code, type: org.type, isDemo: org.isDemo ?? false }
+        ? {
+            id: org._id,
+            name: org.name,
+            code: org.code,
+            type: org.type,
+            isDemo: org.isDemo ?? false,
+          }
         : null,
       jobTitle: profile?.jobTitle ?? null,
     };
@@ -79,9 +114,10 @@ export const getSession = query({
 export const joinDemoOrganization = mutation({
   args: {},
   handler: async (ctx) => {
-    const user = await getCurrentUserOrNull(ctx);
+    const access = await resolveAccess(ctx);
+    const user = access.user;
     if (!user) throw new Error("Not authenticated");
-    if (user.isAnonymous === true && !guestAuthEnabled()) {
+    if (access.isGuest && !guestAuthEnabled()) {
       throw new Error("Guest access is disabled on this deployment");
     }
 
@@ -97,13 +133,16 @@ export const joinDemoOrganization = mutation({
       .query("organizations")
       .withIndex("code", (q) => q.eq("code", "IITAMS-DEMO"))
       .unique();
-    if (!org) return { joined: false, organizationId: null };
+    if (!org || org.isDemo !== true) {
+      // Never attach a user (or guest) to a non-demo organization here.
+      return { joined: false, organizationId: null };
+    }
 
     await ctx.db.insert("userProfiles", {
       userId: user._id,
       organizationId: org._id,
+      role: user.role ?? "member",
       jobTitle: "Assurance Officer",
-      permissions: [user.role ?? "member"],
       lastSeenAt: Date.now(),
     });
 

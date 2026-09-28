@@ -1,4 +1,61 @@
-.env.local
-node_modules
-dist
-src/convex/_generated
+# --- Dependencies & build output -------------------------------------------
+node_modules/
+dist/
+isolate/
+src/convex/_generated/
+
+# --- Secrets & credentials (NEVER commit) -----------------------------------
+# Dotenv and secret material of any kind. `.env.example` is force-allowed
+# below (templates only — no real values).
+.env
+.env.*
+!.env.example
+.env.keys
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.crt
+*.csr
+*.asc
+*.sig
+id_rsa*
+id_ed25519*
+id_ecdsa*
+*.pgpass
+.pgpass
+.kube/config
+.aws/credentials
+.gnpmrc
+.npmrc
+.yarnrc.yml
+
+# --- Databases / dumps / backups (may contain embedded credentials) ---------
+*.sql
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.backup
+*.bak
+*.tar.gz
+*.tgz
+
+# --- Logs & local state ------------------------------------------------------
+*.log
+npm-debug.log*
+yarn-error.log*
+.DS_Store
+Thumbs.db
+
+# --- Environment snapshots / secret-tool state -------------------------------
+.env.backup
+.env.old
+.env.production
+credentials.json
+client_secret*.json
+serviceAccountKey*.json
+firebase-adminsdk*.json

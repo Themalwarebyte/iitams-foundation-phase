@@ -1,12 +1,6 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
-import { Doc } from "./_generated/dataModel";
-import {
-  getActiveOrganizationId,
-  getCurrentUserOrNull,
-  getEffectiveRole,
-  roleHasPermission,
-} from "./access";
+import { resolveAccess, roleHasPermission } from "./access";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -14,12 +8,12 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export const executive = query({
   args: {},
   handler: async (ctx) => {
-    const user = await getCurrentUserOrNull(ctx);
-    const organizationId = await getActiveOrganizationId(ctx);
-    const role = await getEffectiveRole(ctx);
-    const canView = roleHasPermission(role, "dashboard.view");
+    const access = await resolveAccess(ctx);
+    const organizationId = access.organizationId;
+    const canView = roleHasPermission(access.role, "dashboard.view");
 
-    if (!user || !organizationId || !canView) {
+    // Unauthenticated, unprovisioned, or unauthorized → no tenant data.
+    if (!access.user || !organizationId || !canView) {
       return null;
     }
 
@@ -210,7 +204,7 @@ export const executive = query({
     return {
       organization: org ? { name: org.name, code: org.code, type: org.type } : null,
       isDemoData: anyDemo,
-      role,
+      role: access.role ?? null,
       generatedAt: now,
       kpis: {
         activeAudits: activeEngagements.length,

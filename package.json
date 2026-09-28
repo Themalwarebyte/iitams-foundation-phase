@@ -8,7 +8,10 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:unit": "bun test tests/phase1.test.ts",
+    "test:e2e": "bun test tests/browser.smoke.test.ts",
+    "test": "bun test tests/"
   },
   "dependencies": {
     "@convex-dev/auth": "^0.0.90",
@@ -42,8 +45,6 @@
     "@radix-ui/react-toggle-group": "^1.1.11",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tailwindcss/vite": "^4.1.17",
-    "@vly-ai/integrations": "^0.6.14",
-    "@zumer/snapdom": "^2.0.1",
     "axios": "^1.13.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -76,6 +77,8 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "@vly-ai/integrations": "^0.6.14",
+    "@zumer/snapdom": "^3.1.1",
     "eslint": "^9.39.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.0.1",

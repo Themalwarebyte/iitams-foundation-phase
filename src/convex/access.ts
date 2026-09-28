@@ -3,15 +3,35 @@ import { QueryCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 
 /**
- * Permission model (Phase 1 scope)
- * --------------------------------
- * - `admin`  : full access to every module and administration functions
- * - `user`   : all operational modules (audit, risk, compliance, cyber, BCM)
- * - `member` / demo accounts : read-only operational modules, no administration
+ * IITAMS access control (Phase-1 final)
+ * =====================================
+ * Invariants (all fail closed):
  *
- * Permission-aware navigation on the client maps onto this same model via
- * `src/lib/permissions.ts` so users only see modules they can actually open.
+ *  1. ROLE comes from an explicit validated `role` field on `userProfiles`
+ *     (falling back to the auth user's role). Roles are NEVER inferred from
+ *     permission strings.
+ *  2. ORGANIZATION comes ONLY from an explicit `userProfile.organizationId`.
+ *     There is NO fallback to "the first organization" — an unprovisioned
+ *     user gets no organization context, no permissions, and no tenant data.
+ *  3. GUESTS (anonymous users) resolve only when IITAMS_ALLOW_GUEST_AUTH=true,
+ *     and may only attach to an organization explicitly flagged `isDemo`.
+ *     A real organization is never selected as a guest fallback.
+ *  4. Client permission checks are UX only; server checks are authoritative.
  */
+
+// ---------------------------------------------------------------------------
+// Role registry — extensible for later IITAMS roles (Phase 2+):
+// audit_director, audit_manager, auditor, qa_reviewer, risk_manager,
+// compliance_officer, security_analyst, bcm_manager, management, viewer.
+// Phase 1 safely supports the three roles below; unknown roles fail closed.
+// ---------------------------------------------------------------------------
+export const IITAMS_ROLES = [
+  "admin",
+  "user",
+  "member",
+] as const;
+export type IitamsRole = (typeof IITAMS_ROLES)[number];
+
 export type IitamsPermission =
   // Overview
   | "dashboard.view"
@@ -48,7 +68,7 @@ const OPERATIONAL_VIEW: IitamsPermission[] = [
   "reports.view",
 ];
 
-const ROLE_PERMISSIONS: Record<RoleName, IitamsPermission[]> = {
+const ROLE_PERMISSIONS: Record<IitamsRole, IitamsPermission[]> = {
   admin: [
     ...OPERATIONAL_VIEW,
     "audit.manage",
@@ -63,24 +83,17 @@ const ROLE_PERMISSIONS: Record<RoleName, IitamsPermission[]> = {
   member: [...OPERATIONAL_VIEW],
 };
 
-type RoleName = "admin" | "user" | "member";
-type Role = RoleName | undefined;
-
-/**
- * Guest (anonymous) sign-in policy
- * --------------------------------
- * Guest login is a development convenience ONLY. It is disabled for all
- * server-side authorization when the deployment is marked production via the
- * `IITAMS_ALLOW_GUEST_AUTH` deployment variable (set with
- * `npx convex env set IITAMS_ALLOW_GUEST_AUTH false` — default is disabled).
- *
- * Anonymous users therefore fail every permission check in production and can
- * reach no protected data; in development (variable explicitly "true") they
- * resolve to the read-only `member` role so demo environments work.
- */
-export function guestAuthEnabled(): boolean {
-  return process.env.IITAMS_ALLOW_GUEST_AUTH === "true";
+export function roleHasPermission(
+  role: IitamsRole | undefined,
+  permission: IitamsPermission,
+): boolean {
+  if (!role) return false; // no role / unknown role → deny (fail closed)
+  return ROLE_PERMISSIONS[role]?.includes(permission) ?? false;
 }
+
+// ---------------------------------------------------------------------------
+// Identity / tenancy resolution
+// ---------------------------------------------------------------------------
 
 export async function getCurrentUserOrNull(
   ctx: QueryCtx,
@@ -90,50 +103,120 @@ export async function getCurrentUserOrNull(
   return await ctx.db.get(userId);
 }
 
-/**
- * Resolve the acting user's role. Provisioned profiles may override the auth
- * role; everything else falls back to the auth table's role field.
- */
-export async function getEffectiveRole(ctx: QueryCtx): Promise<Role> {
-  const user = await getCurrentUserOrNull(ctx);
-  if (!user) return undefined;
+/** Guest (anonymous) sign-in policy — see module docblock. */
+export function guestAuthEnabled(): boolean {
+  return process.env.IITAMS_ALLOW_GUEST_AUTH === "true";
+}
 
-  // Production-safe guest policy: anonymous users only resolve a role when
-  // guest auth is explicitly enabled on the deployment (development).
-  if (user.isAnonymous === true && !guestAuthEnabled()) {
-    return undefined; // fail closed — every permission check denies
+export interface AccessContext {
+  user: Doc<"users"> | null;
+  /** Effective role; undefined when access must be denied. */
+  role: IitamsRole | undefined;
+  /** Explicit organization (never a fallback); null when unprovisioned. */
+  organizationId: Id<"organizations"> | null;
+  /** True when the resolved organization is an explicitly flagged demo org. */
+  organizationIsDemo: boolean;
+  /** True for anonymous users admitted under the development guest policy. */
+  isGuest: boolean;
+  /** False when the user is authenticated but has no provisioned org. */
+  isProvisioned: boolean;
+}
+
+/**
+ * Single resolution point for identity + tenancy + role. Denial reasons are
+ * explicit so callers can surface precise states (e.g. "awaiting
+ * provisioning") instead of silent fallbacks.
+ */
+export async function resolveAccess(ctx: QueryCtx): Promise<AccessContext> {
+  const user = await getCurrentUserOrNull(ctx);
+  if (!user) {
+    return {
+      user: null,
+      role: undefined,
+      organizationId: null,
+      organizationIsDemo: false,
+      isGuest: false,
+      isProvisioned: false,
+    };
+  }
+
+  const isGuest = user.isAnonymous === true;
+  if (isGuest && !guestAuthEnabled()) {
+    // Production: anonymous users resolve nothing at all.
+    return {
+      user,
+      role: undefined,
+      organizationId: null,
+      organizationIsDemo: false,
+      isGuest: true,
+      isProvisioned: false,
+    };
   }
 
   const profile = await ctx.db
     .query("userProfiles")
     .withIndex("userId", (q) => q.eq("userId", user._id))
     .unique();
-  return (profile?.permissions?.[0] as Role | undefined) ?? user.role ?? "member";
+
+  // Role: explicit validated field only (never inferred from permission
+  // strings). Unknown values fail closed to undefined.
+  const rawRole = profile?.role ?? user.role;
+  const role = IITAMS_ROLES.includes(rawRole as IitamsRole)
+    ? (rawRole as IitamsRole)
+    : undefined;
+
+  // Organization: ONLY an explicit profile assignment. No first-org fallback.
+  let organizationId: Id<"organizations"> | null =
+    profile?.organizationId ?? null;
+  let organizationIsDemo = false;
+
+  if (organizationId) {
+    const org = await ctx.db.get(organizationId);
+    if (!org) {
+      organizationId = null; // dangling reference → deny
+    } else {
+      organizationIsDemo = org.isDemo === true;
+      // Guests may ONLY attach to explicitly demo-flagged organizations.
+      if (isGuest && !organizationIsDemo) {
+        organizationId = null;
+        organizationIsDemo = false;
+      }
+    }
+  } else if (isGuest && guestAuthEnabled()) {
+    // Development guest bootstrap: pick a demo-flagged organization only.
+    const demoOrg = await ctx.db
+      .query("organizations")
+      .withIndex("code", (q) => q.eq("code", "IITAMS-DEMO"))
+      .unique();
+    if (demoOrg && demoOrg.isDemo === true) {
+      organizationId = demoOrg._id;
+      organizationIsDemo = true;
+    }
+  }
+
+  return {
+    user,
+    role,
+    organizationId,
+    organizationIsDemo,
+    isGuest,
+    isProvisioned: organizationId !== null,
+  };
 }
 
-export function roleHasPermission(
-  role: Role,
-  permission: IitamsPermission,
-): boolean {
-  if (!role) return false;
-  return ROLE_PERMISSIONS[role]?.includes(permission) ?? false;
+/** Effective role for the caller (undefined = deny). */
+export async function getEffectiveRole(
+  ctx: QueryCtx,
+): Promise<IitamsRole | undefined> {
+  return (await resolveAccess(ctx)).role;
 }
 
 /**
- * Active organization for the current user. Falls back to the first seeded
- * organization so demo environments work out of the box.
+ * Active organization for the caller. Returns null unless the user has an
+ * explicit valid profile assignment (guests: an explicitly demo org).
  */
 export async function getActiveOrganizationId(
   ctx: QueryCtx,
 ): Promise<Id<"organizations"> | null> {
-  const user = await getCurrentUserOrNull(ctx);
-  if (user) {
-    const profile = await ctx.db
-      .query("userProfiles")
-      .withIndex("userId", (q) => q.eq("userId", user._id))
-      .unique();
-    if (profile?.organizationId) return profile.organizationId;
-  }
-  const first = await ctx.db.query("organizations").first();
-  return first?._id ?? null;
+  return (await resolveAccess(ctx)).organizationId;
 }

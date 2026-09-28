@@ -4,9 +4,25 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 import { defineConfig } from "vite";
 
+// ---------------------------------------------------------------------------
+// Freebuff/Vly tooling is DEVELOPMENT-ONLY. The plugin (which injects the Vly
+// screenshot library and dev preview wiring) runs solely for the dev server
+// (`vite` / `vite serve`). Production builds (`vite build`) get a plugins list
+// without it, so generated dist/ output contains no Vly/Freebuff code.
+// Controlled by IITAMS_ENABLE_FREEBUFF_DEVTOOLS as a second guard.
+// ---------------------------------------------------------------------------
+const devtoolsEnabled =
+  process.env.IITAMS_ENABLE_FREEBUFF_DEVTOOLS === "true" ||
+  process.env.NODE_ENV !== "production";
+const isBuild = process.argv.some((a) => a === "build");
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), vlyPlugin(), tailwindcss()],
+  plugins: [
+    react(),
+    ...(isBuild || !devtoolsEnabled ? [] : [vlyPlugin()]),
+    tailwindcss(),
+  ],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
