@@ -6,7 +6,8 @@
 > ministries, departments, agencies and counties (MDACs).
 
 [![Typecheck](https://img.shields.io/badge/typecheck-passing-brightgreen)](#development)
-[![Tests](https://img.shields.io/badge/tests-14%20passing-brightgreen)](#development)
+[![Build](https://img.shields.io/badge/build-passing-brightgreen)](#development)
+[![Tests](https://img.shields.io/badge/tests-25%20passing-brightgreen)](#development)
 
 ## Overview
 
@@ -76,8 +77,20 @@ bun run dev            # Vite dev server
 bun run build          # typecheck + production build
 bun run lint           # ESLint
 bun run format         # Prettier
-bun test               # unit tests (bun test runner)
+bun test               # unit tests + browser smoke suite
 bun tsc -b --noEmit    # typecheck only
+```
+
+### Browser smoke tests
+
+`tests/browser.smoke.test.ts` runs real Chromium (playwright-core) against the
+dev server and covers: landing, auth screen, sign-in, protected-route
+enforcement, dashboard, sidebar navigation, global search, notifications,
+logout and reduced-motion fallback. Configuration:
+
+```bash
+IITAMS_E2E_BASE_URL=http://localhost:5173   # target app (default)
+IITAMS_E2E_CHROME_PATH=/path/to/chrome      # browser binary
 ```
 
 ## Self-hosting

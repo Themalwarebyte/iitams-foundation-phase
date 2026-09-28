@@ -26,9 +26,10 @@ library were preserved untouched** and extended rather than replaced.
 
 ## 2. What Phase 1 added (all verified in source)
 
-- **Domain schema** (`src/convex/schema.ts`): 15 domain tables across
+- **Domain schema** (`src/convex/schema.ts`): **17 domain tables** across
   organization, audit, risk, compliance, cyber/VM, BCM/DR, notifications and
-  audit-log domains, with multi-tenant `organizationId` scoping and indexes.
+  audit-log domains, with multi-tenant `organizationId` scoping and indexes
+  (24 tables total including the 7 Convex-Auth platform tables).
 - **RBAC** (`src/convex/access.ts`, mirrored in `src/lib/permissions.ts`):
   admin / user / member roles mapped to typed permissions; session query
   resolves effective role + active organization.
@@ -43,14 +44,17 @@ library were preserved untouched** and extended rather than replaced.
   classification system (`src/lib/severity.ts`), reusable composites
   (`src/components/iitams/`), interactive background
   (`src/components/VisualBackground.tsx`). See `docs/DESIGN_SYSTEM.md`.
-- **Application shell**: permission-aware sidebar (all 8 groups / 46 items
+- **Application shell**: permission-aware sidebar (all 8 groups / **48 items**
   from the brief), top bar with org context, global search, notifications,
   help, profile/logout; breadcrumbs on every module page.
 - **Routes**: every navigation target resolves to a protected page.
 - **Self-hosting assets**: `Dockerfile`, `docker-compose.yml`,
   `deploy/nginx.conf`, env-var documentation.
-- **Tests**: 14 bun tests covering nav contract, permissions, tokens and
-  formatting (`tests/phase1.test.ts`).
+- **Authentication safety**: server-side guest gate (`guestAuthEnabled()`) —
+  anonymous users fail all permission checks and receive no session context
+  unless the deployment explicitly enables guest auth (development only).
+- **Tests**: 15 bun tests covering nav contract (48-item), permissions,
+  tokens and formatting (`tests/phase1.test.ts`).
 - **Docs**: this file plus the six sibling documents.
 
 ## 3. Baseline preserved (verified working)

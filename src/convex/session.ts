@@ -4,8 +4,19 @@ import {
   getActiveOrganizationId,
   getCurrentUserOrNull,
   getEffectiveRole,
+  guestAuthEnabled,
   roleHasPermission,
 } from "./access";
+
+/**
+ * Public auth policy flag. Lets the client render development-only affordances
+ * (the guest sign-in button) strictly when the deployment enables guest auth.
+ * In production this returns false and the button is never rendered.
+ */
+export const getAuthPolicy = query({
+  args: {},
+  handler: async () => ({ guestEnabled: guestAuthEnabled() }),
+});
 
 /**
  * Session context for the application shell: identity, organization context,
@@ -16,6 +27,12 @@ export const getSession = query({
   handler: async (ctx) => {
     const user = await getCurrentUserOrNull(ctx);
     if (!user) return null;
+
+    // Production-safe guest policy: anonymous users get no session context at
+    // all when guest auth is disabled, so protected data is unreachable.
+    if (user.isAnonymous === true && !guestAuthEnabled()) {
+      return null;
+    }
 
     const organizationId = await getActiveOrganizationId(ctx);
     const role = await getEffectiveRole(ctx);
@@ -64,6 +81,9 @@ export const joinDemoOrganization = mutation({
   handler: async (ctx) => {
     const user = await getCurrentUserOrNull(ctx);
     if (!user) throw new Error("Not authenticated");
+    if (user.isAnonymous === true && !guestAuthEnabled()) {
+      throw new Error("Guest access is disabled on this deployment");
+    }
 
     const existingProfile = await ctx.db
       .query("userProfiles")

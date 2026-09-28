@@ -7,7 +7,8 @@
 
 | Control | Status | Implementation |
 | --- | --- | --- |
-| Authentication | ✅ | Convex Auth email-OTP + anonymous (demo); JWT sessions; httpOnly token handling by Convex Auth |
+| Authentication | ✅ | Convex Auth email-OTP; JWT sessions; httpOnly token handling by Convex Auth |
+| Guest (anonymous) login prohibition | ✅ | Server-side `guestAuthEnabled()` gate in `src/convex/access.ts`: anonymous users resolve **no role** and **no session context** unless `IITAMS_ALLOW_GUEST_AUTH=true` is explicitly set on the deployment. Default = disabled (production-safe). Client guest button renders only when the deployment enables guest auth — and is treated purely as UX: the server refuses anonymous access regardless of what the client renders. |
 | Session protection | ✅ | Tokens issued/validated by Convex Auth; no client-side session state |
 | RBAC | ✅ | `src/convex/access.ts` — role→permission map; every domain query resolves effective role server-side; fail-closed defaults |
 | Multi-tenant isolation | ✅ | All domain rows scoped by `organizationId`; queries filter by acting user's active org |
@@ -27,7 +28,7 @@
 | 2 | **CSP** finalised for production domains | High | `Content-Security-Policy` header active (nginx) without `unsafe-inline` for scripts |
 | 3 | **Passwordless→policy bridge**: define OTP expiry/resend policy + optional password auth with Argon2/bcrypt if required by policy | High | Documented policy; OTP ≤ 10 min, single use; brute-force resisted |
 | 4 | **File upload validation & evidence hashing** (evidence module, Phase 2) | High | MIME/extension/size allowlist; SHA-256 digest stored at ingest and verified on retrieval |
-| 5 | **Provisioned-user workflow** (invite/approve; disable anonymous sign-in in production) | High | Admin-driven invites; anonymous provider disabled by env flag in prod |
+| 5 | **Provisioned-user workflow** (admin invite/approve UI; guest gate is already enforced server-side) | High | Admin-driven invites; per-user role assignment UI |
 | 6 | **Session revocation & device list** | Medium | Users see active sessions; admins can revoke |
 | 7 | **Field-level classification enforcement** | Medium | `classification` field enforced at query layer (visual indicators already shipped) |
 | 8 | **REST API authN/authZ + schema** (public API phase) | Medium | Token auth, per-scope permissions, OpenAPI spec published |

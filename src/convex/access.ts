@@ -66,6 +66,22 @@ const ROLE_PERMISSIONS: Record<RoleName, IitamsPermission[]> = {
 type RoleName = "admin" | "user" | "member";
 type Role = RoleName | undefined;
 
+/**
+ * Guest (anonymous) sign-in policy
+ * --------------------------------
+ * Guest login is a development convenience ONLY. It is disabled for all
+ * server-side authorization when the deployment is marked production via the
+ * `IITAMS_ALLOW_GUEST_AUTH` deployment variable (set with
+ * `npx convex env set IITAMS_ALLOW_GUEST_AUTH false` — default is disabled).
+ *
+ * Anonymous users therefore fail every permission check in production and can
+ * reach no protected data; in development (variable explicitly "true") they
+ * resolve to the read-only `member` role so demo environments work.
+ */
+export function guestAuthEnabled(): boolean {
+  return process.env.IITAMS_ALLOW_GUEST_AUTH === "true";
+}
+
 export async function getCurrentUserOrNull(
   ctx: QueryCtx,
 ): Promise<Doc<"users"> | null> {
@@ -81,6 +97,13 @@ export async function getCurrentUserOrNull(
 export async function getEffectiveRole(ctx: QueryCtx): Promise<Role> {
   const user = await getCurrentUserOrNull(ctx);
   if (!user) return undefined;
+
+  // Production-safe guest policy: anonymous users only resolve a role when
+  // guest auth is explicitly enabled on the deployment (development).
+  if (user.isAnonymous === true && !guestAuthEnabled()) {
+    return undefined; // fail closed — every permission check denies
+  }
+
   const profile = await ctx.db
     .query("userProfiles")
     .withIndex("userId", (q) => q.eq("userId", user._id))

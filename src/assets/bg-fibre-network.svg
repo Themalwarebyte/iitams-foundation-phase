@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" fill="none">
+  <!--
+    IITAMS original artwork — abstract national fibre / network topology.
+    License: created for the IITAMS project (original work, no third-party
+    rights). Deliberately abstract: no official government marks.
+  -->
+  <defs>
+    <radialGradient id="glowA" cx="0.28" cy="0.32" r="0.55">
+      <stop offset="0%" stop-color="#4EB5F5" stop-opacity="0.34"/>
+      <stop offset="100%" stop-color="#4EB5F5" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowB" cx="0.74" cy="0.66" r="0.5">
+      <stop offset="0%" stop-color="#005A9A" stop-opacity="0.42"/>
+      <stop offset="100%" stop-color="#005A9A" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="link" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4EB5F5" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#9EC9E8" stop-opacity="0.18"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1920" height="1080" fill="#0C3D49"/>
+  <rect width="1920" height="1080" fill="url(#glowA)"/>
+  <rect width="1920" height="1080" fill="url(#glowB)"/>
+
+  <!-- fibre trunks -->
+  <g stroke="url(#link)" stroke-width="2.5" fill="none">
+    <path d="M-40 240 C 380 180, 720 420, 1080 360 S 1760 240, 1980 380"/>
+    <path d="M-40 520 C 320 560, 640 380, 1020 470 S 1700 620, 1980 540"/>
+    <path d="M-40 800 C 360 860, 700 700, 1100 760 S 1780 880, 1980 760"/>
+    <path d="M240 -40 C 300 300, 520 560, 470 1120"/>
+    <path d="M960 -40 C 900 320, 1120 600, 1000 1120"/>
+    <path d="M1660 -40 C 1700 320, 1520 640, 1640 1120"/>
+  </g>
+
+  <!-- secondary strands -->
+  <g stroke="#9EC9E8" stroke-opacity="0.16" stroke-width="1.2" fill="none">
+    <path d="M-40 340 C 400 320, 760 500, 1140 430 S 1800 330, 1980 460"/>
+    <path d="M-40 660 C 380 700, 720 560, 1080 620 S 1760 720, 1980 640"/>
+    <path d="M560 -40 C 600 300, 760 620, 700 1120"/>
+    <path d="M1320 -40 C 1280 340, 1420 660, 1340 1120"/>
+  </g>
+
+  <!-- exchange nodes -->
+  <g>
+    <circle cx="470" cy="420" r="7" fill="#4EB5F5" fill-opacity="0.9"/>
+    <circle cx="470" cy="420" r="16" stroke="#4EB5F5" stroke-opacity="0.35" stroke-width="1.5"/>
+    <circle cx="1020" cy="470" r="9" fill="#FFD900" fill-opacity="0.85"/>
+    <circle cx="1020" cy="470" r="20" stroke="#FFD900" stroke-opacity="0.3" stroke-width="1.5"/>
+    <circle cx="1340" cy="640" r="6" fill="#4EB5F5" fill-opacity="0.8"/>
+    <circle cx="700" cy="620" r="6" fill="#9EC9E8" fill-opacity="0.7"/>
+    <circle cx="1640" cy="760" r="7" fill="#4EB5F5" fill-opacity="0.75"/>
+    <circle cx="300" cy="860" r="5" fill="#9EC9E8" fill-opacity="0.6"/>
+  </g>
+
+  <!-- datacentre block hints -->
+  <g fill="#9EC9E8" fill-opacity="0.1">
+    <rect x="880" y="200" width="46" height="30" rx="4"/>
+    <rect x="936" y="200" width="46" height="30" rx="4"/>
+    <rect x="992" y="200" width="46" height="30" rx="4"/>
+    <rect x="1540" y="560" width="46" height="30" rx="4"/>
+    <rect x="1596" y="560" width="46" height="30" rx="4"/>
+  </g>
+</svg>

@@ -1,12 +1,18 @@
 # ---------------------------------------------------------------------------
 # IITAMS — Docker Compose for self-hosted deployments
 #
-# The web tier is a stateless static SPA behind nginx. The application backend
-# is Convex (self-hostable or Convex-managed) — point VITE_CONVEX_URL at your
-# deployment and rebuild. See docs/SELF_HOSTING_ARCHITECTURE.md.
+# Web tier: stateless static SPA behind nginx. Point VITE_CONVEX_URL at your
+# Convex deployment (self-hosted or managed) and rebuild.
+#
+# DATASTORE POLICY: Convex is the single transactional system of record. The
+# `postgres` service below is RESERVED/OPTIONAL (profile `reporting`) for a
+# future analytics mirror — it is NOT part of the default deployment and holds
+# no application data. Do not treat it as a second source of truth.
 #
 # Usage:
 #   VITE_CONVEX_URL=https://<your-deployment>.convex.cloud docker compose up -d --build
+# Optional analytics store (explicit opt-in only):
+#   docker compose --profile reporting up -d
 # ---------------------------------------------------------------------------
 
 services:
@@ -30,25 +36,26 @@ services:
       retries: 3
 
   # ---------------------------------------------------------------------------
-  # PostgreSQL is provisioned for the application's future relational needs
-  # (reporting exports, integration stores). The Phase-1 system of record is
-  # Convex; this service keeps the compose file honest about the production
-  # target database without wiring it prematurely.
+  # RESERVED / OPTIONAL — future reporting/integration mirror (Phase 3+).
+  # NOT started by default (`docker compose --profile reporting up -d`).
+  # The transactional system of record remains Convex; this service must never
+  # hold authoritative application data. Password comes from a secrets file
+  # you create (`secrets/pg_password.txt`) — never inline credentials here.
   # ---------------------------------------------------------------------------
   postgres:
     image: postgres:16-alpine
+    profiles: ["reporting"]
     restart: unless-stopped
     environment:
-      POSTGRES_DB: iitams
+      POSTGRES_DB: iitams_reporting
       POSTGRES_USER: iitams
-      # Provide the password via an env file or secret manager — never inline.
       POSTGRES_PASSWORD_FILE: /run/secrets/pg_password
     secrets:
       - pg_password
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U iitams -d iitams"]
+      test: ["CMD-SHELL", "pg_isready -U iitams -d iitams_reporting"]
       interval: 10s
       timeout: 5s
       retries: 5

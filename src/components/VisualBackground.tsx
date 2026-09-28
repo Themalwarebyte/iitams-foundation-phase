@@ -209,23 +209,29 @@ export function VisualBackground({
           className="absolute inset-0 h-full w-full"
         />
       )}
-      {/* 5. Photo layer(s) with cinematic pan + cross-fade */}
+      {/* 5. Photo/artwork layer(s) with cinematic pan + cross-fade.
+          The parent clamps opacity at a subtle level so the cross-fading
+          child never overpowers the particle layer or the text. */}
       {images.length > 0 && (
         <div aria-hidden className="absolute inset-0">
           {images.map((src, i) => (
             <div
               key={src + i}
-              data-cinematic
-              className="absolute inset-0 bg-cover bg-center"
-              style={{
-                backgroundImage: `url(${src})`,
-                animation: isStatic
-                  ? undefined
-                  : `cinematic-pan 46s ease-in-out ${i % 2 === 0 ? "" : "reverse"} infinite alternate, bg-crossfade ${images.length * 14}s linear infinite`,
-                animationDelay: `${i * 7}s`,
-                opacity: i === 0 ? 0.16 : 0,
-              }}
-            />
+              className="absolute inset-0"
+              style={{ opacity: 0.22 }}
+            >
+              <div
+                data-cinematic
+                className="absolute inset-0 bg-cover bg-center"
+                style={{
+                  backgroundImage: `url(${src})`,
+                  animation: isStatic
+                    ? undefined
+                    : `cinematic-pan 46s ease-in-out ${i % 2 === 0 ? "" : "reverse"} infinite alternate, bg-crossfade ${images.length * 14}s linear infinite`,
+                  animationDelay: `${i * 7}s`,
+                }}
+              />
+            </div>
           ))}
           <div className="absolute inset-0 bg-ink/60" />
         </div>

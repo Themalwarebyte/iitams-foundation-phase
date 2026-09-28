@@ -11,24 +11,55 @@ colour, type, spacing and component behaviour.
 
 ## 1. Colour system & provenance
 
-### 1.1 Extraction methodology
+### 1.1 Extraction methodology & live verification
 
 The brief required inspecting the **current official Ministry of Information,
 Communications and the Digital Economy (MICDE)** web presence and recording
-real values rather than guessing. The live site (`https://www.ict.go.ke/`)
-and its December 2024 capture (Internet Archive snapshot
-`20241227022202`) were inspected; inline `<style>` blocks of the homepage
-markup contain the active theme rules, from which the following were sampled:
+real values rather than guessing.
 
-| Sampled value | Where it appears on ict.go.ke | Role in IITAMS |
+**Live re-verification (closure review):** the current site was re-checked on
+**28 September 2026** via the most recent capture of `https://www.ict.go.ke/`
+(23 July 2026 snapshot, Internet Archive). The site's inline theme CSS is
+**byte-for-byte consistent with the December 2024 capture used at Phase 1**:
+
+| Sampled value | Where it appears on ict.go.ke (verified 2026-07-23 capture) | Role in IITAMS |
 | --- | --- | --- |
 | `#005A9A` | `.topbar{background:#005a9a}`, header/menu link colour, hover accent | **Primary** (buttons, active nav, focus ring, chart-1) |
 | `#004E98` | Header deep-blue variant | **Primary-dark** (hero ink gradient base) |
 | `#4EB5F5` | Sky-blue accent on link/icon highlights | **Info accent** (info severity, links, particles) |
 | `#C2E9FF` / `#E1F2FF` | Light-blue section tints | Tinted surfaces (soft badges, secondary tiles) |
 | `#006341` | `.text-theme{color:#006341}` assurance-green | **Success** (positive status, effective controls) |
-| `#FFD900` | Gold used on footer/CTA highlights (Kenya-flag gold) | Warm accent (logo node, sparing highlights) |
+| `#FFD900` | Gold on footer/CTA highlights (Kenya-flag gold) | Warm accent (logo node, sparing highlights) |
 | `#0C3D49` | Dark teal text on light panels | **Ink** — dark surfaces, hero gradient end |
+
+Sources recorded:
+
+- Current live URL: `https://www.ict.go.ke/` (redirects to `https://ict.go.ke/`)
+- Access date: **28 September 2026**
+- Live capture inspected: Internet Archive snapshot `20260723113155` of
+  `https://ict.go.ke/`; homepage inline `<style>` theme rules extracted
+  directly from the capture markup
+- Phase-1 baseline capture: `20241227022202` (identical colour set — palette
+  unchanged between 2024 and 2026)
+
+Because the current live values **support the existing palette exactly**, no
+colour changes were made — the Phase-1 tokens stand as extracted.
+
+**Non-use of official marks:** IITAMS deliberately does **not** use the Kenya
+Coat of Arms, the Ministry's logo, or any other restricted official mark. The
+IITAMS shield mark is an original composition (assurance shield + network
+nodes) using the extracted palette. During development IITAMS presents itself
+as a Ministry-*inspired* application, not an officially deployed government
+service; official endorsement claims are made nowhere in the UI or docs.
+
+**Background artwork sources & licensing:** all background imagery is
+**original IITAMS artwork** (SVG, ~2–3 kB each) created for this project —
+abstract fibre/network topology (`src/assets/bg-fibre-network.svg`) and
+data-centre corridor (`src/assets/bg-datacentre.svg`). No third-party,
+stock, or scraped imagery is used, so there are no external licence
+requirements. SVG was chosen over photos for: tiny payload (vector,
+resolution-independent), no external requests, and crisp rendering at every
+viewport size.
 
 The IITAMS palette is *inspired by* the Ministry identity (institutional blue
 anchored with Kenyan gold and assurance green) while remaining a distinct

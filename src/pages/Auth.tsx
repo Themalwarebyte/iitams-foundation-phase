@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/input-otp";
 
 import { useAuth } from "@/hooks/use-auth";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import logo from "@/assets/logo.svg";
 import { ArrowRight, Loader2, Mail, ShieldCheck, UserX } from "lucide-react";
 import { Suspense, useEffect, useState } from "react";
@@ -39,6 +41,10 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const { isLoading: authLoading, isAuthenticated, signIn } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  // Auth policy is authoritative from the deployment (server-side). The guest
+  // button renders only when the deployment enables guest auth (development).
+  const authPolicy = useQuery(api.session.getAuthPolicy, {});
+  const guestEnabled = authPolicy?.guestEnabled === true;
   const redirect = resolveRedirectAfterAuth(
     searchParams.get("returnTo"),
     redirectAfterAuth,
@@ -229,21 +235,26 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                           </div>
                           <div className="relative flex justify-center text-xs uppercase">
                             <span className="bg-card px-2 text-muted-foreground">
-                              Or
+                              {guestEnabled ? "Or" : ""}
                             </span>
                           </div>
                         </div>
 
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="mt-4 w-full"
-                          onClick={handleGuestLogin}
-                          disabled={isLoading}
-                        >
-                          <UserX className="mr-2 h-4 w-4" />
-                          Continue as Guest
-                        </Button>
+                        {/* Development-only affordance: rendered strictly when
+                            the deployment enables guest auth; the backend
+                            independently refuses anonymous access in prod. */}
+                        {guestEnabled && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="mt-4 w-full"
+                            onClick={handleGuestLogin}
+                            disabled={isLoading}
+                          >
+                            <UserX className="mr-2 h-4 w-4" />
+                            Continue as Guest (development)
+                          </Button>
+                        )}
                       </div>
                     </CardContent>
                   </form>

@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation } from "./_generated/server";
-import { getCurrentUserOrNull } from "./access";
+import { getCurrentUserOrNull, guestAuthEnabled } from "./access";
 
 /**
  * Demo environment seed. Creates a clearly-flagged demo organization with
@@ -12,6 +12,15 @@ import { getCurrentUserOrNull } from "./access";
 export const seedDemoData = mutation({
   args: {},
   handler: async (ctx) => {
+    // Demo seeding is a development convenience: refuse on production
+    // deployments (guest auth disabled) and for anonymous callers.
+    const actor = await getCurrentUserOrNull(ctx);
+    if (!guestAuthEnabled() || actor?.isAnonymous === true) {
+      throw new Error(
+        "Demo seeding is only available on development deployments",
+      );
+    }
+
     const existing = await ctx.db
       .query("organizations")
       .withIndex("code", (q) => q.eq("code", "IITAMS-DEMO"))
@@ -351,11 +360,11 @@ export const seedDemoData = mutation({
       });
     }
 
-    const actor = await getCurrentUserOrNull(ctx);
+    const seeder = actor; // reuse the actor fetched by the guard above
     await ctx.db.insert("auditLogs", {
       organizationId: orgId,
-      userId: actor?._id,
-      actorLabel: actor?.name ?? actor?.email ?? "Unknown",
+      userId: seeder?._id,
+      actorLabel: seeder?.name ?? seeder?.email ?? "Unknown",
       action: "system.seeded_demo_data",
       entityType: "organizations",
       entityId: orgId,

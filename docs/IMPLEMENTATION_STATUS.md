@@ -20,7 +20,7 @@
 | Auth flow preserved & restyled | ✅ | `src/pages/Auth.tsx` (logic untouched, design updated) |
 | Self-hosting assets (Docker, Compose, nginx) | ✅ | `Dockerfile`, `docker-compose.yml`, `deploy/nginx.conf` |
 | Documentation set | ✅ | 8 docs in `docs/` + README |
-| Tests (unit) | ✅ | 14 tests passing (`tests/phase1.test.ts`) |
+| Tests (unit + browser smoke) | ✅ | 15 unit tests + 10 Chromium smoke tests passing (`tests/`) |
 
 ## Phase 2 — Recommended next (not started)
 
@@ -43,8 +43,9 @@
 - PostgreSQL analytical mirror + BI exports.
 - Mobile-responsive field-audit companion (PWA offline capture).
 
-## Verification snapshot
+## Verification snapshot (closure)
 
 - `bun convex dev --once` — backend deployed clean.
 - `bun tsc -b --noEmit` — zero errors.
-- `bun test` — 14/14 passing.
+- `bun run build` — production build succeeds.
+- `bun test` — 25/25 passing (15 unit + 10 browser smoke).

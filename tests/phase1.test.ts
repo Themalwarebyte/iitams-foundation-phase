@@ -62,6 +62,20 @@ describe("navigation model", () => {
 // ---------------------------------------------------------------------------
 
 describe("permission model", () => {
+  test("navigation totals 48 entries across 8 groups per specification", () => {
+    const counts = NAV_GROUPS.map((g) => ({ label: g.label, count: g.items.length }));
+    expect(counts).toEqual([
+      { label: "Overview", count: 3 },
+      { label: "Audit Management", count: 10 },
+      { label: "ICT Risk", count: 5 },
+      { label: "Compliance", count: 6 },
+      { label: "Cybersecurity Assurance", count: 6 },
+      { label: "Business Continuity", count: 6 },
+      { label: "Reports & Analytics", count: 6 },
+      { label: "Administration", count: 6 },
+    ]);
+    expect(NAV_GROUPS.reduce((n, g) => n + g.items.length, 0)).toBe(48);
+  });
   const fullAdmin: PermissionSet = {
     dashboard: true,
     workspace: true,

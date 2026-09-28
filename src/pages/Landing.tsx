@@ -26,6 +26,8 @@ import {
 import { VisualBackground } from "@/components/VisualBackground";
 import { useAuth } from "@/hooks/use-auth";
 import logo from "@/assets/logo.svg";
+import bgFibre from "@/assets/bg-fibre-network.svg";
+import bgDatacentre from "@/assets/bg-datacentre.svg";
 
 const CAPABILITIES = [
   {
@@ -172,7 +174,12 @@ export default function Landing() {
       <main id="main-content">
         {/* Hero on the interactive background */}
         <section className="relative">
-          <VisualBackground className="min-h-[560px] lg:min-h-[640px]" particles>
+          <VisualBackground
+            className="min-h-[560px] lg:min-h-[640px]"
+            particles
+            images={[bgFibre, bgDatacentre]}
+            ariaLabel="Abstract illustration of national fibre network and data-centre infrastructure"
+          >
             <div className="mx-auto flex max-w-7xl flex-col justify-center px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
               <motion.div
                 initial="hidden"
