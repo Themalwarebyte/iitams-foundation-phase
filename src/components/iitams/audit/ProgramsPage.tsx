@@ -68,6 +68,7 @@ export function ProgramsPage({ path }: { path: string }) {
   const engagements = useQuery(api.auditEngagements.listMine, {});
   const first = engagements?.[0]?.engagement;
   const [engagementId, setEngagementId] = useState<string | null>(null);
+  const [programDialogOpen, setProgramDialogOpen] = useState(false);
   const active = engagementId ?? first?._id ?? null;
 
   const programs = useQuery(
@@ -111,6 +112,12 @@ export function ProgramsPage({ path }: { path: string }) {
             </Select>
           </div>
 
+          <div>
+            <Button size="sm" variant="outline" onClick={() => setProgramDialogOpen(true)}>
+              <Plus className="size-4" aria-hidden /> New program
+            </Button>
+          </div>
+
           {programs === undefined ? (
             <ListSkeleton />
           ) : programs.length === 0 ? (
@@ -128,7 +135,97 @@ export function ProgramsPage({ path }: { path: string }) {
           )}
         </div>
       )}
+
+      {active && (
+        <CreateProgramDialog
+          open={programDialogOpen}
+          onClose={() => setProgramDialogOpen(false)}
+          engagementId={active}
+        />
+      )}
     </ListPageShell>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Create program dialog
+// ---------------------------------------------------------------------------
+
+function CreateProgramDialog({
+  open,
+  onClose,
+  engagementId,
+}: {
+  open: boolean;
+  onClose: () => void;
+  engagementId: string;
+}) {
+  const create = useMutation(api.auditWorkpapers.createProgram);
+  const [title, setTitle] = useState("");
+  const [objective, setObjective] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>New audit program</DialogTitle>
+          <DialogDescription>
+            Groups structured procedures for one engagement; add procedures
+            after the program is created.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="pg-title">Program title *</Label>
+            <Input
+              id="pg-title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. QA Access Control Review"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="pg-obj">Objective</Label>
+            <Textarea
+              id="pg-obj"
+              rows={2}
+              value={objective}
+              onChange={(e) => setObjective(e.target.value)}
+              placeholder="e.g. Assess the effectiveness of privileged-access controls."
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={!title || busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await create({
+                  engagementId: engagementId as never,
+                  title,
+                  objective: objective || undefined,
+                });
+                toast.success("Audit program created");
+                setTitle("");
+                setObjective("");
+                onClose();
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : "Failed");
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            Create program
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

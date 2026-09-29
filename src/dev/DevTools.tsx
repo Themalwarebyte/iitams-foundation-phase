@@ -82,6 +82,9 @@ function DevQaBridge() {
       async upgradeDemoRole() {
         return await client.mutation(api.session.requestDemoRoleUpgrade, {});
       },
+      async whoAmI() {
+        return await client.query(api.session.getSession, {});
+      },
     };
     return () => {
       delete (window as unknown as Record<string, unknown>).__IITAMS_DEV_QA__;
