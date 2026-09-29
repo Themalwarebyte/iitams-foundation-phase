@@ -29,8 +29,23 @@ government-grade interface:
   configuration, audit logs
 
 Phase 1 establishes the foundation: design system, application shell, RBAC,
-domain schema, executive dashboard and self-hosting assets. See
-[`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md) for exactly
+domain schema, executive dashboard and self-hosting assets.
+
+**Phase 2 delivers the Core IT Audit Management Engine**: audit universe
+repository, risk-based annual planning with server-side priority scoring,
+seven-stage engagement lifecycle with role-guarded transitions, audit team
+assignment (assignment-gated authority), audit programs & procedures,
+working papers with preparer/reviewer workflow, secure evidence management
+with server-side SHA-256 integrity hashing and classification-gated access,
+full findings lifecycle with management responses, corrective-action
+tracking with overdue reminders, and an audit reporting foundation
+(engagement / findings / executive reports exportable to PDF and Word) —
+plus six dedicated audit roles in the RBAC registry. See
+[`docs/PHASE_2_IMPLEMENTATION.md`](docs/PHASE_2_IMPLEMENTATION.md),
+[`docs/AUDIT_MODULE_ARCHITECTURE.md`](docs/AUDIT_MODULE_ARCHITECTURE.md) and
+[`docs/AUDIT_WORKFLOW.md`](docs/AUDIT_WORKFLOW.md).
+
+See [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md) for exactly
 what is live vs scaffolded, and
 [`docs/MODULE_IMPLEMENTATION_MATRIX.md`](docs/MODULE_IMPLEMENTATION_MATRIX.md)
 for the verified per-module matrix.
@@ -115,6 +130,11 @@ Web tier assets: [`Dockerfile`](Dockerfile), [`docker-compose.yml`](docker-compo
 | Document | Purpose |
 | --- | --- |
 | [`docs/PHASE_1_BASELINE.md`](docs/PHASE_1_BASELINE.md) | repository baseline & Phase-1 changes |
+| [`docs/PHASE_2_IMPLEMENTATION.md`](docs/PHASE_2_IMPLEMENTATION.md) | Phase-2 audit engine delivery per module |
+| [`docs/AUDIT_MODULE_ARCHITECTURE.md`](docs/AUDIT_MODULE_ARCHITECTURE.md) | audit engine architecture & authorization core |
+| [`docs/AUDIT_WORKFLOW.md`](docs/AUDIT_WORKFLOW.md) | lifecycle/authority reference for all four workflows |
+| [`docs/PHASE_2_DATA_MODEL.md`](docs/PHASE_2_DATA_MODEL.md) | Phase-2 tables, fields and indexes |
+| [`docs/PHASE_2_TEST_REPORT.md`](docs/PHASE_2_TEST_REPORT.md) | Phase-2 test inventory & results |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | topology, domains, data flow |
 | [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md) | Ministry-sourced design tokens & components |
 | [`docs/MODULE_IMPLEMENTATION_MATRIX.md`](docs/MODULE_IMPLEMENTATION_MATRIX.md) | verified module statuses |

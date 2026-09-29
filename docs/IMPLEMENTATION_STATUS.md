@@ -1,7 +1,9 @@
 # IITAMS — Implementation Status
 
-> Phase 1 complete · Verified September 2026 · See
-> `docs/MODULE_IMPLEMENTATION_MATRIX.md` for per-module detail.
+> Phase 1 (foundation) + Phase 2 (Core IT Audit Management Engine) complete ·
+> Verified September 2026 · See `docs/MODULE_IMPLEMENTATION_MATRIX.md` for
+> per-module detail and `docs/PHASE_2_IMPLEMENTATION.md` for the Phase-2
+> delivery breakdown.
 
 ## Phase 1 — Foundation (this phase)
 
@@ -22,19 +24,37 @@
 | Documentation set | ✅ | 8 docs in `docs/` + README |
 | Tests (unit + browser smoke) | ✅ | 15 unit tests + 10 Chromium smoke tests passing (`tests/`) |
 
-## Phase 2 — Recommended next (not started)
+## Phase 2 — Core IT Audit Management Engine (complete)
 
-1. **Module workflows** — findings, corrective actions, risks, controls and
-   vulnerabilities: full CRUD UIs with assignment, transitions and evidence
-   links (schema already in place).
-2. **Evidence management** — S3/MinIO storage abstraction, upload validation,
-   SHA-256 integrity hashing, classification enforcement.
-3. **User provisioning** — admin invites, role assignment UI, disable
-   anonymous sign-in in production.
-4. **Administration UIs** — organizations/MDACs, users, roles, audit-log
+| Workstream | Status | Evidence |
+| --- | --- | --- |
+| Recovery validation after sandbox incidents | ✅ | `docs/PHASE_2_RECOVERY_CHECK.md` |
+| Audit universe management (CRUD, archive, search, history) | ✅ | `src/convex/auditUniverse.ts`, `/audit/universe` |
+| Risk-based planning + server-side priority scoring | ✅ | `src/lib/auditScoring.ts`, `src/convex/auditPlans.ts`, `/audit/plans` |
+| Engagement lifecycle (7 stages, role-guarded) | ✅ | `src/lib/auditWorkflow.ts`, `src/convex/auditEngagements.ts`, `/audit/engagements` |
+| Team assignment (assignment-gated authority) | ✅ | `src/convex/auditAccess.ts`, `auditAssignments` |
+| Programs & procedures (Pass/Fail/Exception) | ✅ | `src/convex/auditWorkpapers.ts`, `/audit/programs` |
+| Working papers (preparer/reviewer workflow) | ✅ | `/audit/workpapers` |
+| Evidence (server-side SHA-256, classification, access logs) | ✅ | `src/convex/auditEvidence.ts`, `/audit/evidence` |
+| Findings lifecycle + management response | ✅ | `src/convex/auditFindings.ts`, `/audit/findings` |
+| Corrective actions (overdue, reminders, verification) | ✅ | `/audit/actions` |
+| Reporting foundation (engagement/findings/executive; PDF+Word) | ✅ | `src/convex/auditReports.ts`, `/audit/reports` |
+| Dashboard expansion (audit programme strip) | ✅ | `src/convex/auditDashboard.ts` |
+| Notifications (assignment/review/finding/action/overdue) | ✅ | existing framework, extended |
+| RBAC extension (6 audit roles) | ✅ | `src/convex/access.ts`, `src/lib/permissions.ts` |
+| Tests (unit 64/64; smoke 10/10; lifecycle journey) | ✅ | `tests/phase2.test.ts`, `tests/browser.audit-lifecycle.test.ts`, `docs/PHASE_2_TEST_REPORT.md` |
+| Documentation set | ✅ | `docs/PHASE_2_IMPLEMENTATION.md`, `docs/AUDIT_MODULE_ARCHITECTURE.md`, `docs/AUDIT_WORKFLOW.md`, `docs/PHASE_2_DATA_MODEL.md` |
+
+## Phase 3 — Recommended next (not started)
+
+1. **User provisioning UI** — admin invites, role assignment, disable
+   anonymous sign-in in production deployments.
+2. **Administration UIs** — organizations/MDACs, users, roles, audit-log
    viewer.
-5. **Reporting engine** — scheduled PDF/CSV generation and delivery.
-6. **CI/CD** — GitHub Actions: typecheck, tests, build, dependency audit.
+3. **Remaining module workflows** — risk/compliance/cyber/BCM record CRUD UIs
+   on the Phase-1 schema (foundation already in place).
+4. **Reporting engine** — scheduled report generation and delivery.
+5. **CI/CD** — GitHub Actions: typecheck, tests, build, dependency audit.
 
 ## Longer-term (Phase 3+)
 
