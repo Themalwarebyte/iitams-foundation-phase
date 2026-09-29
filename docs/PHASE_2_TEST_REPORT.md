@@ -47,9 +47,17 @@ One 120s journey exercising the Phase-2 spec flow:
 7. `/audit/reports` renders executive summary with coverage
 8. Zero page errors across the journey (asserted)
 
-Result: **see completion report** — the suite is registered and green when
-the dev server is up; strict-gate failure on a down server is a reported
-SKIP-equivalent (FAIL with reason), never a silent pass.
+Result at final closure: **PENDING — NOT EXECUTED**. The suite is registered,
+type-clean, and its prerequisites are verified present (chromium binary at
+`chromium-1243`), but the platform-managed dev server was unreachable during
+the final-closure session: every poll of `http://localhost:5173` returned
+HTTP 000 on both localhost and 127.0.0.1, and `ss -tln` showed zero listening
+sockets. The platform forbids agents from starting/stopping the dev server,
+so the strict gate fired exactly as designed: `E2E GATE FAILED: dev server
+unreachable at http://localhost:5173` (0 pass / 1 fail, thrown at the gate
+in <1 ms). This is a FAIL-with-reason, never a silent pass. The journey must
+be executed once the dev server is reachable; until then it is the one open
+Phase-2 verification item.
 
 ## Static verification
 

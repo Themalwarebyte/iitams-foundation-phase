@@ -42,7 +42,7 @@
 | Dashboard expansion (audit programme strip) | ✅ | `src/convex/auditDashboard.ts` |
 | Notifications (assignment/review/finding/action/overdue) | ✅ | existing framework, extended |
 | RBAC extension (6 audit roles) | ✅ | `src/convex/access.ts`, `src/lib/permissions.ts` |
-| Tests (unit 64/64; smoke 10/10; lifecycle journey) | ✅ | `tests/phase2.test.ts`, `tests/browser.audit-lifecycle.test.ts`, `docs/PHASE_2_TEST_REPORT.md` |
+| Tests (unit 64/64; smoke 10/10; lifecycle journey pending — dev server unreachable at closure, see test report) | ✅ / ⏳ | `tests/phase2.test.ts`, `tests/browser.audit-lifecycle.test.ts`, `docs/PHASE_2_TEST_REPORT.md` |
 | Documentation set | ✅ | `docs/PHASE_2_IMPLEMENTATION.md`, `docs/AUDIT_MODULE_ARCHITECTURE.md`, `docs/AUDIT_WORKFLOW.md`, `docs/PHASE_2_DATA_MODEL.md` |
 
 ## Phase 3 — Recommended next (not started)
