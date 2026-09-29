@@ -75,9 +75,8 @@ export function canTransitionEngagement(
  * status transitions. Progression is an auditor-side action; cancellation is
  * a manager-side decision.
  */
-export const ENGAGEMENT_TRANSITION_ROLES: Record<
-  `${EngagementStatus}->${EngagementStatus}`,
-  readonly AuditTeamRole[]
+export const ENGAGEMENT_TRANSITION_ROLES: Partial<
+  Record<`${EngagementStatus}->${EngagementStatus}`, readonly AuditTeamRole[]>
 > = {
   "draft->planning": ["audit_manager", "lead_auditor", "audit_director"],
   "planning->approved": ["audit_manager", "audit_director"],
@@ -141,9 +140,8 @@ export const WORKING_PAPER_TRANSITIONS: Record<
 };
 
 /** Roles allowed per transition; "reviewer" covers review/approve/return. */
-export const WORKING_PAPER_TRANSITION_ROLES: Record<
-  `${WorkingPaperStatus}->${WorkingPaperStatus}`,
-  readonly AuditTeamRole[]
+export const WORKING_PAPER_TRANSITION_ROLES: Partial<
+  Record<`${WorkingPaperStatus}->${WorkingPaperStatus}`, readonly AuditTeamRole[]>
 > = {
   "draft->submitted": ["auditor", "lead_auditor", "audit_manager"],
   "submitted->reviewed": ["reviewer", "audit_manager", "audit_director"],
@@ -197,9 +195,8 @@ export const FINDING_TRANSITIONS: Record<FindingStatus, readonly FindingStatus[]
   closed: [],
 };
 
-export const FINDING_TRANSITION_ROLES: Record<
-  `${FindingStatus}->${FindingStatus}`,
-  readonly AuditTeamRole[]
+export const FINDING_TRANSITION_ROLES: Partial<
+  Record<`${FindingStatus}->${FindingStatus}`, readonly AuditTeamRole[]>
 > = {
   "identified->draft": ["auditor", "lead_auditor", "audit_manager"],
   "draft->reviewed": ["lead_auditor", "audit_manager", "reviewer"],
