@@ -20,15 +20,25 @@ import { Doc, Id } from "./_generated/dataModel";
  */
 
 // ---------------------------------------------------------------------------
-// Role registry — extensible for later IITAMS roles (Phase 2+):
-// audit_director, audit_manager, auditor, qa_reviewer, risk_manager,
-// compliance_officer, security_analyst, bcm_manager, management, viewer.
-// Phase 1 safely supports the three roles below; unknown roles fail closed.
+// Role registry — Phase 2 adds the formal audit-workflow roles from the
+// IITAMS specification (audit director / manager / auditor / reviewer /
+// management user / executive viewer). Unknown roles continue to fail closed.
+// NOTE: engagement-level authority is additionally constrained by audit team
+// assignments (src/convex/auditAccess.ts) — a role grants module capability,
+// an assignment grants the right to touch a specific engagement.
 // ---------------------------------------------------------------------------
 export const IITAMS_ROLES = [
+  // Platform roles (Phase 1)
   "admin",
   "user",
   "member",
+  // Audit workflow roles (Phase 2)
+  "audit_director",
+  "audit_manager",
+  "auditor",
+  "audit_reviewer",
+  "management_user",
+  "executive_viewer",
 ] as const;
 export type IitamsRole = (typeof IITAMS_ROLES)[number];
 
@@ -81,6 +91,33 @@ const ROLE_PERMISSIONS: Record<IitamsRole, IitamsPermission[]> = {
   ],
   user: [...OPERATIONAL_VIEW, "audit.manage", "risk.manage"],
   member: [...OPERATIONAL_VIEW],
+  // --- Phase 2 audit workflow roles -------------------------------------
+  // Audit Director: full audit oversight across the lifecycle.
+  audit_director: [
+    "dashboard.view",
+    "workspace.view",
+    "audit.view",
+    "audit.manage",
+    "reports.view",
+  ],
+  // Audit Manager: manages engagements, teams and the audit programme.
+  audit_manager: [
+    "dashboard.view",
+    "workspace.view",
+    "audit.view",
+    "audit.manage",
+    "reports.view",
+  ],
+  // Auditor: performs assigned engagement work (assignments gate the
+  // engagement-level authority; see src/convex/auditAccess.ts).
+  auditor: ["dashboard.view", "workspace.view", "audit.view"],
+  // Audit Reviewer: reviews/approves working papers and findings.
+  audit_reviewer: ["dashboard.view", "workspace.view", "audit.view"],
+  // Management User: views audit output, responds to findings and owns
+  // corrective actions.
+  management_user: ["dashboard.view", "workspace.view", "audit.view", "reports.view"],
+  // Executive Viewer: dashboards and reports only.
+  executive_viewer: ["dashboard.view", "reports.view"],
 };
 
 export function roleHasPermission(
