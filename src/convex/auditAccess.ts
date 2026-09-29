@@ -37,8 +37,8 @@ const PLATFORM_PRIVILEGED = new Set(["admin"]);
 export interface EngagementAccess {
   access: AccessContext;
   engagement: Doc<"auditEngagements">;
-  /** Caller's team assignment on this engagement (undefined = unassigned). */
-  assignment: Doc<"auditAssignments"> | undefined;
+  /** Caller's team assignment on this engagement (null = unassigned). */
+  assignment: Doc<"auditAssignments"> | null;
   teamRole: AuditTeamRole | undefined;
   /** Any assignment → may participate in engagement work. */
   canWork: boolean;

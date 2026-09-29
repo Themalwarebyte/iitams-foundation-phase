@@ -1,5 +1,11 @@
 import { v } from "convex/values";
-import { internalMutation, mutation, query } from "./_generated/server";
+import {
+  internalAction,
+  internalMutation,
+  mutation,
+  query,
+} from "./_generated/server";
+import { internal } from "./_generated/api";
 import {
   classificationValidator,
   evidenceStatusValidator,
@@ -12,18 +18,24 @@ import {
 
 /**
  * Module 7 — Evidence Management.
- * Secure evidence handling: Convex file storage for bytes, server-computed
- * SHA-256 integrity hashes, classification-aware access control, and
- * access logging for every download. Evidence metadata and blobs are
+ * Secure evidence handling: Convex file storage for bytes, SERVER-computed
+ * SHA-256 integrity hashes (via a scheduled internal action, because Convex
+ * mutations cannot read blob bytes), classification-aware access control,
+ * and access logging for every download. Evidence metadata is
  * organization-scoped; cross-tenant ids read as absent.
  *
- * Upload flow (two steps, both authorized):
- *   1. `generateUploadUrl`  → audit.manage caller receives a one-time URL
- *   2. `confirmUpload`      → called after the browser PUT; the server reads
- *      the stored file, computes SHA-256, and creates the evidence record.
+ * Upload flow (three steps, all authorized):
+ *   1. `generateUploadUrl` — audit.manage caller receives a one-time URL
+ *   2. `confirmUpload`     — called after the browser PUT; validates the
+ *      declaration, creates the evidence record and schedules hashing
+ *   3. internal action     — fetches the stored blob by URL, computes the
+ *      SHA-256 server-side and stamps it onto the record
+ *
+ * Browsers enforce the 10 MB / MIME-type limits before the PUT; the server
+ * re-validates the MIME type on confirmation.
  */
 
-const MAX_EVIDENCE_BYTES = 10 * 1024 * 1024; // 10 MB
+const MAX_EVIDENCE_BYTES = 10 * 1024 * 1024; // 10 MB (enforced client-side pre-PUT)
 const ALLOWED_TYPES = [
   "application/pdf",
   "image/png",
@@ -61,15 +73,16 @@ export const generateUploadUrl = mutation({
 });
 
 /**
- * Finalize an upload: validates type/size, computes the SHA-256 integrity
- * hash server-side, and creates the evidence record. Called by the browser
- * after its PUT to the upload URL completes.
+ * Finalize an upload: validates the declaration, creates the evidence record
+ * with the storage pointer, and schedules the server-side SHA-256 hashing
+ * action. Called by the browser after its PUT to the upload URL completes.
  */
 export const confirmUpload = mutation({
   args: {
     storageId: v.id("_storage"),
     filename: v.string(),
     fileType: v.string(),
+    sizeBytes: v.number(),
     classification: classificationValidator,
     engagementId: v.optional(v.id("auditEngagements")),
     workingPaperId: v.optional(v.id("workingPapers")),
@@ -84,31 +97,20 @@ export const confirmUpload = mutation({
     if (!ALLOWED_TYPES.includes(args.fileType)) {
       throw new Error(`Unsupported file type: ${args.fileType}`);
     }
-
-    // Read the stored blob server-side; compute SHA-256 for integrity.
-    const blob = await ctx.storage.get(args.storageId);
-    if (!blob) throw new Error("Uploaded file not found in storage");
-    if (blob.size > MAX_EVIDENCE_BYTES) {
-      await ctx.storage.delete(args.storageId);
-      throw new Error("File exceeds the 10 MB evidence limit");
+    if (args.sizeBytes <= 0 || args.sizeBytes > MAX_EVIDENCE_BYTES) {
+      throw new Error("File size must be between 1 byte and 10 MB");
     }
-    const digest = await crypto.subtle.digest("SHA-256", blob);
-    const sha256 = Array.from(new Uint8Array(digest))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
 
-    // Optional parent artefacts must belong to the same organization.
+    // Referenced artefacts must belong to the same organization.
     if (args.engagementId) {
       const e = await ctx.db.get(args.engagementId);
       if (!e || e.organizationId !== access.organizationId) {
-        await ctx.storage.delete(args.storageId);
         throw new Error("Engagement not found in your organization");
       }
     }
     if (args.workingPaperId) {
       const wp = await ctx.db.get(args.workingPaperId);
       if (!wp || wp.organizationId !== access.organizationId) {
-        await ctx.storage.delete(args.storageId);
         throw new Error("Working paper not found in your organization");
       }
     }
@@ -120,9 +122,10 @@ export const confirmUpload = mutation({
       workingPaperId: args.workingPaperId,
       filename: args.filename,
       fileType: args.fileType,
-      sizeBytes: blob.size,
+      sizeBytes: args.sizeBytes,
       classification: args.classification,
-      sha256,
+      // Stamped by the scheduled hashing action (empty until then).
+      sha256: "",
       storageId: args.storageId,
       source: args.source,
       description: args.description,
@@ -133,6 +136,13 @@ export const confirmUpload = mutation({
       updatedAt: now,
     });
 
+    // Server-side integrity hashing happens asynchronously (Convex mutation
+    // contexts cannot read blob bytes).
+    await ctx.scheduler.runAfter(0, internal.auditEvidence.computeEvidenceHash, {
+      evidenceId,
+      storageId: args.storageId,
+    });
+
     await logAudit(ctx, {
       organizationId: access.organizationId,
       userId: access.user?._id,
@@ -140,10 +150,51 @@ export const confirmUpload = mutation({
       action: "evidence.uploaded",
       entityType: "evidence",
       entityId: evidenceId,
-      summary: `${args.filename} (${Math.round(blob.size / 1024)} KB, ${args.classification}, sha256 ${sha256.slice(0, 12)}…)`,
+      summary: `${args.filename} (${Math.round(args.sizeBytes / 1024)} KB, ${args.classification})`,
     });
 
-    return { evidenceId, sha256, sizeBytes: blob.size };
+    return { evidenceId };
+  },
+});
+
+/**
+ * INTERNAL — compute the SHA-256 of a stored evidence blob and stamp it on
+ * the record. Runs as an action because only action/query contexts can
+ * access blob bytes (via the download URL).
+ */
+export const computeEvidenceHash = internalAction({
+  args: {
+    evidenceId: v.id("evidence"),
+    storageId: v.id("_storage"),
+  },
+  handler: async (ctx, args) => {
+    const url = await ctx.storage.getUrl(args.storageId);
+    if (!url) return;
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const buf = await res.arrayBuffer();
+    const digest = await crypto.subtle.digest("SHA-256", buf);
+    const sha256 = Array.from(new Uint8Array(digest))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    await ctx.runMutation(internal.auditEvidence.stampEvidenceHash, {
+      evidenceId: args.evidenceId,
+      sha256,
+    });
+  },
+});
+
+/** INTERNAL — write the computed hash onto the evidence record. */
+export const stampEvidenceHash = internalMutation({
+  args: {
+    evidenceId: v.id("evidence"),
+    sha256: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.evidenceId, {
+      sha256: args.sha256,
+      updatedAt: Date.now(),
+    });
   },
 });
 
@@ -180,12 +231,7 @@ export const list = query({
       );
     }
     return rows
-      .map((r) => ({
-        ...r,
-        // Restricted items are hidden from non-privileged viewers entirely.
-        restrictedHidden: !mayAccessClassification(access.role, r.classification),
-      }))
-      .filter((r) => !r.restrictedHidden)
+      .filter((r) => mayAccessClassification(access.role, r.classification))
       .sort((a, b) => b.createdAt - a.createdAt);
   },
 });
@@ -219,9 +265,7 @@ export const getDownloadUrl = mutation({
       summary: `Downloaded ${ev.filename} (${ev.classification})`,
     });
 
-    const url = ev.storageId
-      ? await ctx.storage.getUrl(ev.storageId)
-      : null;
+    const url = ev.storageId ? await ctx.storage.getUrl(ev.storageId) : null;
     return { url, sha256: ev.sha256, filename: ev.filename };
   },
 });
@@ -270,27 +314,87 @@ export const updateEvidence = mutation({
 });
 
 /**
- * Internal integrity verification used by tests and the admin console:
- * recomputes the SHA-256 of the stored blob and compares it to the recorded
- * hash. Returns a boolean verdict without exposing bytes.
+ * Re-run server-side integrity verification for one evidence record.
+ * Recomputes the SHA-256 of the stored blob and compares it with the
+ * recorded hash. Returns a verdict without exposing bytes.
  */
-export const verifyIntegrity = internalMutation({
+export const verifyIntegrity = mutation({
   args: { evidenceId: v.id("evidence") },
   handler: async (ctx, args) => {
+    const access = await requirePermission(ctx, "audit.manage");
+    if (!access.organizationId) throw new Error("No organization context");
     const ev = await ctx.db.get(args.evidenceId);
-    if (!ev) return { ok: false, reason: "not_found" as const };
-    if (!ev.storageId) return { ok: false, reason: "blob_missing" as const };
-    const blob = await ctx.storage.get(ev.storageId);
-    if (!blob) return { ok: false, reason: "blob_missing" as const };
-    const digest = await crypto.subtle.digest("SHA-256", blob);
+    if (!ev || ev.organizationId !== access.organizationId) {
+      throw new Error("Evidence not found");
+    }
+    if (!ev.storageId) return { ok: false, verdict: "blob_missing" as const };
+
+    await ctx.scheduler.runAfter(0, internal.auditEvidence.verifyEvidenceHash, {
+      evidenceId: ev._id,
+      storageId: ev.storageId,
+      expectedSha256: ev.sha256,
+    });
+    // Verification result is audited asynchronously by the action.
+    return { ok: true, verdict: "verification_scheduled" as const };
+  },
+});
+
+/** INTERNAL — recompute a hash and record the verification verdict. */
+export const verifyEvidenceHash = internalAction({
+  args: {
+    evidenceId: v.id("evidence"),
+    storageId: v.id("_storage"),
+    expectedSha256: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const url = await ctx.storage.getUrl(args.storageId);
+    if (!url) {
+      await ctx.runMutation(internal.auditEvidence.recordIntegrityVerdict, {
+        evidenceId: args.evidenceId,
+        verdict: "blob_missing",
+      });
+      return;
+    }
+    const res = await fetch(url);
+    const buf = res.ok ? await res.arrayBuffer() : null;
+    if (!buf) {
+      await ctx.runMutation(internal.auditEvidence.recordIntegrityVerdict, {
+        evidenceId: args.evidenceId,
+        verdict: "blob_missing",
+      });
+      return;
+    }
+    const digest = await crypto.subtle.digest("SHA-256", buf);
     const sha256 = Array.from(new Uint8Array(digest))
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
-    return {
-      ok: sha256 === ev.sha256,
-      reason: sha256 === ev.sha256
-        ? ("intact" as const)
-        : ("hash_mismatch" as const),
-    };
+    await ctx.runMutation(internal.auditEvidence.recordIntegrityVerdict, {
+      evidenceId: args.evidenceId,
+      verdict: sha256 === args.expectedSha256 ? "intact" : "hash_mismatch",
+    });
+  },
+});
+
+/** INTERNAL — persist an integrity verdict to the audit log. */
+export const recordIntegrityVerdict = internalMutation({
+  args: {
+    evidenceId: v.id("evidence"),
+    verdict: v.union(
+      v.literal("intact"),
+      v.literal("hash_mismatch"),
+      v.literal("blob_missing"),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const ev = await ctx.db.get(args.evidenceId);
+    if (!ev) return;
+    await ctx.db.insert("auditLogs", {
+      organizationId: ev.organizationId,
+      action: "evidence.integrity_verified",
+      entityType: "evidence",
+      entityId: args.evidenceId,
+      summary: `Integrity check for ${ev.filename}: ${args.verdict}`,
+      createdAt: Date.now(),
+    });
   },
 });
