@@ -4,7 +4,7 @@ import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { ConvexReactClient } from "convex/react";
 import React, { StrictMode, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Route, Routes } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import "./index.css";
 
 // ---------------------------------------------------------------------------
@@ -26,6 +26,52 @@ const AuthPage = lazy(() => import("./pages/Auth.tsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
 const ModulePage = lazy(() => import("./pages/ModulePage.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
+// Phase 2 audit pages (named exports mapped to default for lazy())
+const UniversePage = lazy(() =>
+  import("./components/iitams/audit/UniversePage").then((m) => ({
+    default: m.UniversePage,
+  })),
+);
+const PlansPage = lazy(() =>
+  import("./components/iitams/audit/PlansPage").then((m) => ({
+    default: m.PlansPage,
+  })),
+);
+const EngagementsPage = lazy(() =>
+  import("./components/iitams/audit/EngagementsPage").then((m) => ({
+    default: m.EngagementsPage,
+  })),
+);
+const ProgramsPage = lazy(() =>
+  import("./components/iitams/audit/ProgramsPage").then((m) => ({
+    default: m.ProgramsPage,
+  })),
+);
+const WorkpapersPage = lazy(() =>
+  import("./components/iitams/audit/WorkpapersPage").then((m) => ({
+    default: m.WorkpapersPage,
+  })),
+);
+const EvidencePage = lazy(() =>
+  import("./components/iitams/audit/EvidencePage").then((m) => ({
+    default: m.EvidencePage,
+  })),
+);
+const FindingsPage = lazy(() =>
+  import("./components/iitams/audit/FindingsPage").then((m) => ({
+    default: m.FindingsPage,
+  })),
+);
+const ActionsPage = lazy(() =>
+  import("./components/iitams/audit/ActionsPage").then((m) => ({
+    default: m.ActionsPage,
+  })),
+);
+const ReportsPage = lazy(() =>
+  import("./components/iitams/audit/ReportsPage").then((m) => ({
+    default: m.ReportsPage,
+  })),
+);
 
 // Simple loading fallback for route transitions
 function RouteLoading() {
@@ -34,6 +80,23 @@ function RouteLoading() {
       <div className="animate-pulse text-muted-foreground">Loading IITAMS…</div>
     </div>
   );
+}
+
+/** Protected wrapper for the Phase-2 audit module routes. */
+function AuditRoute({ children }: { children: React.ReactNode }) {
+  return (
+    <RequireAuth
+      title="Sign in to open this module"
+      description="IITAMS modules are available to authorized users of your organization."
+    >
+      {children}
+    </RequireAuth>
+  );
+}
+
+/** Redirect helper for renamed Phase-1 paths. */
+function AuditRedirect({ to }: { to: string }) {
+  return <Navigate to={to} replace />;
 }
 
 /** Hard guard so runtime errors never leave the app as a blank page. */
@@ -85,16 +148,8 @@ const MODULE_ROUTES = [
   // Overview
   "/workspace",
   "/notifications",
-  // Audit Management
-  "/audit/universe",
-  "/audit/plans",
-  "/audit/engagements",
-  "/audit/programs",
-  "/audit/working-papers",
-  "/audit/evidence",
-  "/audit/findings",
+  // Audit Management (Phase-1 scaffold routes retained for the remaining modules)
   "/audit/management-responses",
-  "/audit/corrective-actions",
   "/audit/follow-up",
   // ICT Risk
   "/risk/register",
@@ -186,6 +241,19 @@ createRoot(document.getElementById("root")!).render(
                   }
                 />
               ))}
+              {/* Phase 2 — Core IT Audit Management Engine */}
+              <Route path="/audit/universe" element={<AuditRoute><UniversePage path="/audit/universe" /></AuditRoute>} />
+              <Route path="/audit/plans" element={<AuditRoute><PlansPage path="/audit/plans" /></AuditRoute>} />
+              <Route path="/audit/engagements" element={<AuditRoute><EngagementsPage path="/audit/engagements" /></AuditRoute>} />
+              <Route path="/audit/programs" element={<AuditRoute><ProgramsPage path="/audit/programs" /></AuditRoute>} />
+              <Route path="/audit/workpapers" element={<AuditRoute><WorkpapersPage path="/audit/workpapers" /></AuditRoute>} />
+              <Route path="/audit/evidence" element={<AuditRoute><EvidencePage path="/audit/evidence" /></AuditRoute>} />
+              <Route path="/audit/findings" element={<AuditRoute><FindingsPage path="/audit/findings" /></AuditRoute>} />
+              <Route path="/audit/actions" element={<AuditRoute><ActionsPage path="/audit/actions" /></AuditRoute>} />
+              <Route path="/audit/reports" element={<AuditRoute><ReportsPage path="/audit/reports" /></AuditRoute>} />
+              {/* Phase-1 legacy audit paths → Phase-2 spec routes */}
+              <Route path="/audit/working-papers" element={<AuditRedirect to="/audit/workpapers" />} />
+              <Route path="/audit/corrective-actions" element={<AuditRedirect to="/audit/actions" />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>

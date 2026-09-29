@@ -49,6 +49,7 @@ function DashboardSkeleton() {
 
 export default function Dashboard() {
   const data = useQuery(api.dashboard.executive, {});
+  const audit = useQuery(api.auditDashboard.overview, {});
 
   return (
     <AppLayout>
@@ -195,6 +196,67 @@ export default function Dashboard() {
             </div>
           </section>
 
+          {/* Audit programme strip (Phase 2, Module 11) */}
+          {audit && (
+            <section aria-label="Audit programme" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <KpiCard
+                label="Audit universe"
+                value={audit.universe.total}
+                icon={FolderOpen}
+                tone="neutral"
+                hint={`${audit.universe.coveragePct}% covered by engagements`}
+                tooltip="Active audit universe items; coverage counts items with at least one engagement."
+                href="/audit/universe"
+              />
+              <KpiCard
+                label="High-risk unaudited"
+                value={audit.universe.highRiskUncovered}
+                icon={ShieldAlert}
+                tone={audit.universe.highRiskUncovered > 0 ? "critical" : "success"}
+                hint="Critical items without a planned or active audit"
+                tooltip="High/very-high criticality universe items not covered by any engagement."
+                href="/audit/plans"
+              />
+              <KpiCard
+                label="Planned audits"
+                value={audit.engagements.planned}
+                icon={ClipboardCheck}
+                tone="info"
+                hint={`${audit.engagements.delayed} delayed · ${audit.plans.backlog} backlog`}
+                tooltip="Engagements in draft, planning or approved stages, plus plan backlog."
+                href="/audit/engagements"
+              />
+              <KpiCard
+                label="Completed audits"
+                value={audit.engagements.completed}
+                icon={ListChecks}
+                tone="success"
+                hint="Report issued or closed"
+                tooltip="Engagements that have issued their report or closed."
+                href="/audit/engagements"
+              />
+              <KpiCard
+                label="Ageing findings"
+                value={audit.findings.ageingOver90Days}
+                icon={Timer}
+                tone={audit.findings.ageingOver90Days > 0 ? "warning" : "neutral"}
+                hint="Open findings older than 90 days"
+                tooltip="Open findings created more than 90 days ago."
+                href="/audit/findings"
+              />
+              <KpiCard
+                label="Action completion"
+                value={audit.actions.completionRatePct}
+                suffix="%"
+                icon={RefreshCcw}
+                tone="success"
+                hint={`${audit.actions.overdue} overdue action(s)`}
+                tooltip="Share of corrective actions completed, verified or closed."
+                href="/audit/actions"
+              />
+            </section>
+          )}
+
           {/* Charts */}
           <section
             aria-label="Assurance analytics"
@@ -263,9 +325,8 @@ export default function Dashboard() {
                   <span className="font-semibold tabular-nums text-critical">
                     {data.kpis.overdueCorrectiveActions}
                   </span>
-                </div>
-                <Button variant="outline" size="sm" asChild className="mt-2 w-full">
-                  <Link to="/audit/corrective-actions">View corrective actions</Link>
+                </div>                  <Button variant="outline" size="sm" asChild className="mt-2 w-full">
+                  <Link to="/audit/actions">View corrective actions</Link>
                 </Button>
               </CardContent>
             </Card>

@@ -3,11 +3,9 @@ import { mutation, query } from "./_generated/server";
 import {
   procedureResultValidator,
   procedureStatusValidator,
-  programStatusValidator,
   workingPaperStatusValidator,
 } from "./schema";
 import {
-  requirePermission,
   requireEngagementAccess,
   requireTeamRole,
   logAudit,

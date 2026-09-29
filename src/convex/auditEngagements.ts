@@ -143,6 +143,39 @@ export const listTeam = query({
   },
 });
 
+/**
+ * Directory of provisioned users in the caller's organization (for team
+ * assignment pickers). Requires audit.manage; org-scoped via the profile
+ * organizationId index so other tenants' users are never read.
+ */
+export const listOrgUsers = query({
+  args: {},
+  handler: async (ctx) => {
+    const access = await requirePermission(ctx, "audit.manage");
+    if (!access.organizationId) return [];
+    const profiles = await ctx.db
+      .query("userProfiles")
+      .withIndex("by_organization", (q) =>
+        q.eq("organizationId", access.organizationId!),
+      )
+      .collect();
+    const seen = new Set<string>();
+    const out: { userId: string; label: string; jobTitle: string | null }[] = [];
+    for (const p of profiles) {
+      if (seen.has(p.userId)) continue;
+      seen.add(p.userId);
+      const u = await ctx.db.get(p.userId);
+      if (!u) continue;
+      out.push({
+        userId: u._id,
+        label: u.name ?? u.email ?? "Unnamed user",
+        jobTitle: p.jobTitle ?? null,
+      });
+    }
+    return out.sort((a, b) => a.label.localeCompare(b.label));
+  },
+});
+
 // ---------------------------------------------------------------------------
 // Mutations — engagement lifecycle
 // ---------------------------------------------------------------------------

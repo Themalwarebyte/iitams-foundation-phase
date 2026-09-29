@@ -202,7 +202,8 @@ export const update = mutation({
       throw new Error("Audit universe item not found");
     }
 
-    const { id, ...fields } = args;
+    const { id: _id, ...fields } = args;
+    void _id;
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
     for (const [k, val] of Object.entries(fields)) {
       if (val !== undefined) patch[k] = val;

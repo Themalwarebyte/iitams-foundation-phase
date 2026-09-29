@@ -49,6 +49,7 @@ export const getSession = query({
           dashboard: false,
           workspace: false,
           audit: false,
+          auditManage: false,
           risk: false,
           compliance: false,
           cyber: false,
@@ -73,6 +74,7 @@ export const getSession = query({
       dashboard: roleHasPermission(access.role, "dashboard.view"),
       workspace: roleHasPermission(access.role, "workspace.view"),
       audit: roleHasPermission(access.role, "audit.view"),
+      auditManage: roleHasPermission(access.role, "audit.manage"),
       risk: roleHasPermission(access.role, "risk.view"),
       compliance: roleHasPermission(access.role, "compliance.view"),
       cyber: roleHasPermission(access.role, "cyber.view"),
@@ -175,5 +177,55 @@ export const joinDemoOrganization = mutation({
     });
 
     return { joined: true, organizationId: org._id };
+  },
+});
+
+/**
+ * DEMO-ONLY role escalation for development/testing of permission-gated
+ * workflows (e.g. the browser E2E suite exercising audit.manage actions).
+ * Refuses unless the caller is an anonymous guest attached to an explicitly
+ * demo-flagged organization. NEVER grants anything on production
+ * deployments — real users are provisioned by an administrator.
+ */
+export const requestDemoRoleUpgrade = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const access = await resolveAccess(ctx);
+    const user = access.user;
+    if (!user || !user.isAnonymous) {
+      throw new Error("Demo role upgrades apply only to guest sessions");
+    }
+    if (!guestAuthEnabled()) {
+      throw new Error("Guest access is disabled on this deployment");
+    }
+    if (!access.organizationId || !access.organizationIsDemo) {
+      throw new Error("Demo role upgrades require the demo organization");
+    }
+
+    const profile = await ctx.db
+      .query("userProfiles")
+      .withIndex("userId", (q) => q.eq("userId", user._id))
+      .unique();
+    if (!profile || profile.organizationId !== access.organizationId) {
+      throw new Error("Guest profile not found");
+    }
+
+    await ctx.db.patch(profile._id, {
+      role: "audit_manager",
+      lastSeenAt: Date.now(),
+    });
+
+    await ctx.db.insert("auditLogs", {
+      organizationId: access.organizationId,
+      userId: user._id,
+      actorLabel: user.name ?? user.email ?? "Anonymous",
+      action: "user.demo_role_upgraded",
+      entityType: "userProfiles",
+      entityId: profile._id,
+      summary: "Guest session escalated to audit_manager (demo organization)",
+      createdAt: Date.now(),
+    });
+
+    return { ok: true, role: "audit_manager" as const };
   },
 });

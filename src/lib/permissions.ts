@@ -7,6 +7,8 @@ export interface PermissionSet {
   dashboard: boolean;
   workspace: boolean;
   audit: boolean;
+  /** Mirrors the server-side audit.manage permission (create/edit workflows). */
+  auditManage: boolean;
   risk: boolean;
   compliance: boolean;
   cyber: boolean;
@@ -20,6 +22,7 @@ export const DEFAULT_PERMISSIONS: PermissionSet = {
   dashboard: false,
   workspace: false,
   audit: false,
+  auditManage: false,
   risk: false,
   compliance: false,
   cyber: false,

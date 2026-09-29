@@ -301,7 +301,9 @@ const schema = defineSchema(
       // assignment. Evaluated explicitly where a feature requires it.
       permissionOverrides: v.optional(v.array(v.string())),
       lastSeenAt: v.optional(v.number()),
-    }).index("userId", ["userId"]),
+    })
+      .index("userId", ["userId"])
+      .index("by_organization", ["organizationId"]),
 
     // ------------------------------------------------------------------
     // AUDIT MANAGEMENT

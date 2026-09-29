@@ -48,8 +48,44 @@ const sessionSrc = await Bun.file("src/convex/session.ts").text();
 // ---------------------------------------------------------------------------
 
 describe("role registry", () => {
-  test("defines exactly the three Phase-1 roles", () => {
-    expect([...IITAMS_ROLES].sort()).toEqual(["admin", "member", "user"]);
+  test("defines the three Phase-1 platform roles plus the six Phase-2 audit roles", () => {
+    expect([...IITAMS_ROLES].sort()).toEqual([
+      "admin",
+      "audit_director",
+      "audit_manager",
+      "audit_reviewer",
+      "auditor",
+      "executive_viewer",
+      "management_user",
+      "member",
+      "user",
+    ]);
+  });
+
+  test("audit roles grant the documented tiered permissions", () => {
+    // Director & manager: full audit manage + reports
+    for (const role of ["audit_director", "audit_manager"] as const) {
+      expect(roleHasPermission(role, "audit.manage")).toBe(true);
+      expect(roleHasPermission(role, "reports.view")).toBe(true);
+    }
+    // Auditor & reviewer: view-only (assignment-gated actions)
+    for (const role of ["auditor", "audit_reviewer"] as const) {
+      expect(roleHasPermission(role, "audit.view")).toBe(true);
+      expect(roleHasPermission(role, "audit.manage")).toBe(false);
+      expect(roleHasPermission(role, "admin.manage")).toBe(false);
+    }
+    // Management user: view + reports, no audit manage
+    expect(roleHasPermission("management_user", "audit.view")).toBe(true);
+    expect(roleHasPermission("management_user", "reports.view")).toBe(true);
+    expect(roleHasPermission("management_user", "audit.manage")).toBe(false);
+    // Executive viewer: dashboards + reports only
+    expect(roleHasPermission("executive_viewer", "dashboard.view")).toBe(true);
+    expect(roleHasPermission("executive_viewer", "reports.view")).toBe(true);
+    expect(roleHasPermission("executive_viewer", "audit.view")).toBe(false);
+    // No audit role touches administration
+    for (const role of ["audit_director", "audit_manager", "auditor", "audit_reviewer", "management_user", "executive_viewer"] as const) {
+      expect(roleHasPermission(role, "admin.manage")).toBe(false);
+    }
   });
 
   test("unknown roles fail closed", () => {

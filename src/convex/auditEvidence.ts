@@ -12,7 +12,6 @@ import {
 } from "./schema";
 import {
   requirePermission,
-  requireEngagementAccess,
   logAudit,
 } from "./auditAccess";
 

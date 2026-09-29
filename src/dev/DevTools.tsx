@@ -1,5 +1,7 @@
 import React, { Suspense, lazy, useEffect } from "react";
 import { useLocation } from "react-router";
+import { useConvex } from "convex/react";
+import { api } from "../convex/_generated/api";
 
 /**
  * Freebuff/Vly development tooling — DEV-ONLY MODULE.
@@ -65,9 +67,37 @@ function RouteSyncer() {
   return null;
 }
 
+/**
+ * DEV-ONLY QA bridge for automated browser tests. Exposes a minimal hook
+ * (window.__IITAMS_DEV_QA__) that escalates the current GUEST session to the
+ * demo audit-manager tier via the demo-gated mutation, so permission-gated
+ * audit workflows can be exercised end-to-end. This module is never part of
+ * a production bundle (import.meta.env.DEV-gated import in main.tsx), and
+ * the underlying mutation refuses every non-guest/non-demo caller.
+ */
+function DevQaBridge() {
+  const client = useConvex();
+  useEffect(() => {
+    (window as unknown as Record<string, unknown>).__IITAMS_DEV_QA__ = {
+      async upgradeDemoRole() {
+        return await client.mutation(api.session.requestDemoRoleUpgrade, {});
+      },
+    };
+    return () => {
+      delete (window as unknown as Record<string, unknown>).__IITAMS_DEV_QA__;
+    };
+  }, [client]);
+  return null;
+}
+
 /** Router-scoped dev bridge; rendered only inside <BrowserRouter>. */
 export function DevRouteBridge() {
-  return <RouteSyncer />;
+  return (
+    <>
+      <RouteSyncer />
+      <DevQaBridge />
+    </>
+  );
 }
 
 export function DevTools() {
