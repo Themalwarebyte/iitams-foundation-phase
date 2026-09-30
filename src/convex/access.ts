@@ -229,6 +229,12 @@ export async function resolveAccess(ctx: QueryCtx): Promise<AccessContext> {
       organizationId = demoOrg._id;
       organizationIsDemo = true;
     }
+    // NOTE: the bootstrap above grants demo-org CONTEXT only. It deliberately
+    // does NOT create a userProfiles row, so the guest remains unprovisioned
+    // until the explicit audited provisioning path runs (AppLayout →
+    // joinDemoOrganization). Reporting a bootstrapped guest as provisioned
+    // would suppress that path and leave profile-dependent flows (e.g. the
+    // demo role escalation) broken on fresh deployments.
   }
 
   // Guest policy: an anonymous session attached to the demo organization is
@@ -239,13 +245,21 @@ export async function resolveAccess(ctx: QueryCtx): Promise<AccessContext> {
     role = "member";
   }
 
+  // Provisioned = an explicit userProfiles row that still resolves to a valid
+  // organization after the guest/demo checks above. Demo-org CONTEXT from the
+  // bootstrap does not count: profile-dependent flows must go through
+  // explicit provisioning, and real users must never appear provisioned
+  // without an administrator's assignment.
   return {
     user,
     role,
     organizationId,
     organizationIsDemo,
     isGuest,
-    isProvisioned: organizationId !== null,
+    isProvisioned:
+      profile?.organizationId != null &&
+      organizationId !== null &&
+      organizationId === profile.organizationId,
   };
 }
 

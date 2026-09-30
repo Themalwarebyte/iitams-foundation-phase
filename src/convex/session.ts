@@ -202,12 +202,46 @@ export const requestDemoRoleUpgrade = mutation({
       throw new Error("Demo role upgrades require the demo organization");
     }
 
-    const profile = await ctx.db
+    // Dev-only bridge runs before AppLayout's provisioning effect may have
+    // resolved, so ensure the profile row exists here (same guest-only,
+    // demo-org-only, audited path as joinDemoOrganization).
+    let profile = await ctx.db
       .query("userProfiles")
       .withIndex("userId", (q) => q.eq("userId", user._id))
       .unique();
     if (!profile || profile.organizationId !== access.organizationId) {
-      throw new Error("Guest profile not found");
+      if (profile) {
+        // Incomplete/legacy guest profile pointing elsewhere: correct it
+        // within this guest's single permitted tenant (the demo org).
+        await ctx.db.patch(profile._id, {
+          organizationId: access.organizationId,
+          role: profile.role ?? user.role ?? "member",
+          lastSeenAt: Date.now(),
+        });
+      } else {
+        await ctx.db.insert("userProfiles", {
+          userId: user._id,
+          organizationId: access.organizationId,
+          role: user.role ?? "member", // read-only guest tier
+          jobTitle: "Assurance Officer",
+          lastSeenAt: Date.now(),
+        });
+      }
+      profile = await ctx.db
+        .query("userProfiles")
+        .withIndex("userId", (q) => q.eq("userId", user._id))
+        .unique();
+      if (!profile) throw new Error("Guest profile provisioning failed");
+      await ctx.db.insert("auditLogs", {
+        organizationId: access.organizationId,
+        userId: user._id,
+        actorLabel: user.name ?? user.email ?? "Anonymous",
+        action: "user.joined_organization",
+        entityType: "userProfiles",
+        entityId: profile._id,
+        summary: "Guest profile provisioned via demo role escalation bridge",
+        createdAt: Date.now(),
+      });
     }
 
     await ctx.db.patch(profile._id, {

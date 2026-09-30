@@ -210,7 +210,12 @@ describe("IITAMS Phase 2 audit lifecycle (browser)", () => {
       expect(
         await visible(page, page.getByRole("heading", { name: "Audit Reports" }), 20000),
       ).toBe(true);
-      expect(await visible(page, page.getByText("Audit coverage"), 10000)).toBe(true);
+      // exact:true — the report-type picker's description also contains
+      // "Audit coverage", and a substring locator would be ambiguous under
+      // Playwright strict mode.
+      expect(
+        await visible(page, page.getByText("Audit coverage", { exact: true }), 10000),
+      ).toBe(true);
 
       // No page errors across the whole journey.
       expect(errors, `page errors: ${errors.join(" | ")}`).toHaveLength(0);
