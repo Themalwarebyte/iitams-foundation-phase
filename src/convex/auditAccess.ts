@@ -133,7 +133,11 @@ export async function logAudit(
   ctx: MutationCtx,
   input: {
     organizationId: Id<"organizations"> | undefined;
+    /** The user the entry CONCERNS (target). */
     userId: Id<"users"> | undefined;
+    // Phase 3A — Batch 2B: acting principal, recorded explicitly so
+    // administrative entries never conflate actor with target.
+    actorId?: Id<"users">;
     actorLabel?: string;
     action: string;
     entityType: string;
@@ -144,6 +148,7 @@ export async function logAudit(
   await ctx.db.insert("auditLogs", {
     organizationId: input.organizationId,
     userId: input.userId,
+    actorId: input.actorId,
     actorLabel: input.actorLabel,
     action: input.action,
     entityType: input.entityType,

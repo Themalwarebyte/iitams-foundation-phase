@@ -5,9 +5,11 @@ import { logAudit, requirePermission } from "./auditAccess";
 import { IITAMS_ROLES, permissionsForRole } from "./access";
 import {
   MEMBERSHIP_STATUS_LABELS,
+  PROVISIONABLE_INITIAL_ROLES,
   canChangeMembershipStatus,
   effectiveMembershipStatus,
   lastAdminGuardMessage,
+  provisioningSafeRefusal,
 } from "../lib/membership";
 
 /**
@@ -405,18 +407,154 @@ export const setMembershipStatus = mutation({
 
     await ctx.db.patch(target._id, { membershipStatus: args.status });
 
+    // Audit integrity: the entry separates the ACTOR (administrative caller,
+    // actorId/actorLabel) from the TARGET (the affected member, userId and
+    // their display label in the human-readable summary).
+    const targetUser = await ctx.db.get(target.userId);
+    const targetLabel = targetUser?.name ?? targetUser?.email ?? "Unknown member";
     await logAudit(ctx, {
       organizationId: access.organizationId,
       userId: target.userId,
+      actorId: access.user._id,
       actorLabel: access.user.name ?? access.user.email ?? "Administrator",
       action: MEMBERSHIP_ACTION[args.status],
       entityType: "userProfiles",
       entityId: target._id,
-      summary: `Membership ${args.status === "active" ? "reactivated" : args.status} for ${
-        MEMBERSHIP_STATUS_LABELS[args.status]
-      } member by administrator`,
+      summary: `${targetLabel}'s membership ${args.status === "active" ? "reactivated" : args.status} by administrator`,
     });
 
     return { ok: true, status: args.status };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Batch 2B — administrative member provisioning (admin.manage)
+// ---------------------------------------------------------------------------
+
+/** Initial role is validated against the registered RBAC roles, excluding the
+ * privileged platform admin role (Batch 2B restriction). */
+const initialRoleArg = v.union(...PROVISIONABLE_INITIAL_ROLES.map((r) => v.literal(r)));
+
+/**
+ * Provision an EXISTING, VERIFIED IITAMS account into the caller's
+ * organization with an explicitly selected initial role (Batch 2B).
+ *
+ * Security structure (all server-side; the UI is never authoritative):
+ *  - caller must hold `admin.manage` and resolve an ACTIVE membership;
+ *  - the organization comes ONLY from the server-side access context —
+ *    there is no client-supplied organization argument (no cross-tenant
+ *    provisioning, no transfers);
+ *  - the target is resolved through their VERIFIED EMAIL identity in the
+ *    existing Convex Auth user table (indexed lookup). No accounts are
+ *    created, no OTP verification is bypassed, no email is marked verified;
+ *  - anonymous (guest) accounts and accounts whose email is not verified are
+ *    refused;
+ *  - the platform `admin` role is NOT assignable here (separate later flow);
+ *    unknown roles are rejected by the typed validator itself;
+ *  - users with ANY existing organization membership (active, suspended or
+ *    deactivated, in ANY organization) are refused with a UNIFORM safe
+ *    message that never discloses cross-organization membership data;
+ *  - an existing userProfiles row WITHOUT an organization assignment is
+ *    completed in place (no duplicate profiles — one profile per user via
+ *    the userId index); a row that already carries a role is refused for
+ *    manual review rather than silently overwritten;
+ *  - the caller can never provision their own email (anti self-provisioning;
+ *    also covered by the existing-membership refusal);
+ *  - writes are a single transaction: concurrent duplicate requests see the
+ *    first result and refuse (atomic under Convex serialization);
+ *  - global auth-owned user fields are never modified, and role assignment
+ *    is written to the organization-scoped userProfiles.role only.
+ */
+export const provisionMember = mutation({
+  args: {
+    email: v.string(),
+    initialRole: initialRoleArg,
+    jobTitle: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const access = await requirePermission(ctx, "admin.manage");
+    if (!access.organizationId || !access.user) {
+      throw new Error("No organization context");
+    }
+    if (!access.isProvisioned) {
+      throw new Error("Caller membership is not active");
+    }
+
+    // Canonical email identity (Convex Auth stores identifiers lower-cased).
+    const email = args.email.trim().toLowerCase();
+    if (!email.includes("@")) {
+      throw new Error("Enter a valid email address");
+    }
+
+    // Resolve the target through the existing identity system. This tells the
+    // administrator only that the address is or is not a provisionable,
+    // verified account — never its membership state in another organization.
+    const user = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", email))
+      .unique();
+    if (
+      !user ||
+      user.isAnonymous === true ||
+      !user.emailVerificationTime
+    ) {
+      throw new Error(provisioningSafeRefusal());
+    }
+
+    // No self-provisioning (the caller is by definition already a member).
+    if (user._id === access.user._id) {
+      throw new Error(provisioningSafeRefusal());
+    }
+
+    const profile = await ctx.db
+      .query("userProfiles")
+      .withIndex("userId", (q) => q.eq("userId", user._id))
+      .unique();
+    if (profile) {
+      if (profile.organizationId) {
+        // Belongs to this or another organization — uniformly refused. Also
+        // covers suspended/deactivated members (provisioning is never a
+        // route around membership lifecycle restrictions).
+        throw new Error(provisioningSafeRefusal());
+      }
+      if (profile.role !== undefined) {
+        // Unassigned profile that already carries a role: non-obvious state —
+        // refuse for manual review instead of silently overwriting.
+        throw new Error(provisioningSafeRefusal());
+      }
+      // Existing unassigned profile: complete it in place (no duplicate).
+      await ctx.db.patch(profile._id, {
+        organizationId: access.organizationId,
+        role: args.initialRole,
+        ...(args.jobTitle !== undefined ? { jobTitle: args.jobTitle } : {}),
+      });
+    } else {
+      await ctx.db.insert("userProfiles", {
+        userId: user._id,
+        organizationId: access.organizationId,
+        role: args.initialRole,
+        ...(args.jobTitle !== undefined ? { jobTitle: args.jobTitle } : {}),
+      });
+    }
+
+    const storedProfile = (await ctx.db
+      .query("userProfiles")
+      .withIndex("userId", (q) => q.eq("userId", user._id))
+      .unique())!;
+
+    const targetLabel = user.name ?? user.email;
+
+    await logAudit(ctx, {
+      organizationId: access.organizationId,
+      userId: user._id,
+      actorId: access.user._id,
+      actorLabel: access.user.name ?? access.user.email ?? "Administrator",
+      action: "user.membership_provisioned",
+      entityType: "userProfiles",
+      entityId: storedProfile._id,
+      summary: `${targetLabel} provisioned into the organization with initial role ${args.initialRole} by administrator`,
+    });
+
+    return { ok: true, profileId: storedProfile._id, role: args.initialRole };
   },
 });

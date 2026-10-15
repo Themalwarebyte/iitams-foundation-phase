@@ -756,11 +756,31 @@ const schema = defineSchema(
       .index("by_organization", ["organizationId"]),
 
     // ------------------------------------------------------------------
+    // DEVELOPMENT-ONLY TOOLING
+    // ------------------------------------------------------------------
+    // Pending OTP codes for the browser-test bridge. Written ONLY by the
+    // email-otp provider's no-delivery branch on development deployments
+    // (guest auth enabled), and only read there. Production deployments
+    // with a configured provider never populate this table.
+    devOtpCodes: defineTable({
+      email: v.string(),
+      code: v.string(),
+      expirationTime: v.number(),
+      createdAt: v.number(),
+    }).index("by_email", ["email"]),
+
+    // ------------------------------------------------------------------
     // AUDIT LOGGING — immutable trail of significant actions
     // ------------------------------------------------------------------
     auditLogs: defineTable({
       organizationId: v.optional(v.id("organizations")),
       userId: v.optional(v.id("users")),
+      // Acting identity (Phase 3A — Batch 2B). `userId` records the user the
+      // entry CONCERNS (target); `actorLabel` kept working for historical rows
+      // and `actorId` now records the acting principal explicitly, so
+      // administrative entries never conflate actor with target. Optional +
+      // backward-compatible: existing rows are untouched and remain valid.
+      actorId: v.optional(v.id("users")),
       actorLabel: v.optional(v.string()),
       action: v.string(), // e.g. "engagement.created"
       entityType: v.string(),

@@ -1,9 +1,11 @@
 import { mutation, query } from "./_generated/server";
+import { v } from "convex/values";
 import {
   guestAuthEnabled,
   resolveAccess,
   roleHasPermission,
 } from "./access";
+
 
 /**
  * Public auth policy flag. Lets the client render development-only affordances
@@ -315,8 +317,82 @@ export const requestDemoAdminUpgrade = mutation({
       entityId: profile._id,
       summary: "Guest session escalated to platform admin (demo organization)",
       createdAt: Date.now(),
+    });        return { ok: true, role: "admin" as const };
+  },
+});
+
+/**
+ * DEMO-ONLY test-identity seeder for the Batch 2B provisioning browser
+ * suite. Creates a NON-anonymous users row with a VERIFIED email (simulating
+ * a real email-OTP sign-up) but NO organization profile, so the
+ * administrative provisioning flow can be exercised end-to-end against the
+ * demo deployment. This is strictly a development convenience: the mutation
+ * refuses unless guest auth is enabled (never true in production), and the
+ * provisioning path itself (src/convex/admin.ts provisionMember) keeps ALL
+ * real-account requirements — verified email, non-anonymous, no OTP bypass.
+ * Real deployments never call this; production identities are untouched.
+ */
+export const seedVerifiedTestUser = mutation({
+  args: {
+    email: v.string(),
+    name: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    // Backend authorization boundary (defense in depth — the QA bridge is a
+    // client-side gate only). The seeder NEVER runs on production:
+    //  1. guest auth must be explicitly enabled (production never sets it);
+    //  2. the CALLER must be an anonymous guest attached to the explicitly
+    //     demo-flagged organization — external unauthenticated callers and
+    //     real users are refused at the mutation itself.
+    if (!guestAuthEnabled()) {
+      throw new Error("Test identity seeding is only available on development deployments");
+    }
+    const access = await resolveAccess(ctx);
+    const caller = access.user;
+    if (!caller || caller.isAnonymous !== true) {
+      throw new Error("Test identity seeding requires a development guest session");
+    }
+    if (!access.organizationId || !access.organizationIsDemo) {
+      throw new Error("Test identity seeding requires the demo organization");
+    }
+
+    const email = args.email.trim().toLowerCase();
+    if (!email.includes("@")) {
+      throw new Error("Enter a valid email address");
+    }
+
+    // Idempotent under concurrency: refuse if this address already exists
+    // (indexed lookup), so repeated bridge calls cannot create duplicates.
+    const existing = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", email))
+      .unique();
+    if (existing) {
+      return { ok: true, email, alreadyExisted: true };
+    }
+
+    const userId = await ctx.db.insert("users", {
+      name: args.name ?? email.split("@")[0],
+      email,
+      emailVerificationTime: Date.now(),
+      isAnonymous: false,
     });
 
-    return { ok: true, role: "admin" as const };
+    // Traceability: the development seeding is itself audited.
+    await ctx.db.insert("auditLogs", {
+      organizationId: access.organizationId,
+      userId,
+      actorId: caller._id,
+      actorLabel: caller.name ?? caller.email ?? "Anonymous",
+      action: "system.seeded_test_identity",
+      entityType: "users",
+      entityId: userId,
+      summary: `${email} seeded as a verified test identity (development deployment)`,
+      createdAt: Date.now(),
+    });
+
+    // Deliberately NO userProfiles row: the seeded user is unassigned and
+    // becomes provisionable through the administrative flow under test.
+    return { ok: true, email };
   },
 });

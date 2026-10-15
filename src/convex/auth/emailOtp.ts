@@ -1,5 +1,14 @@
 import { Email } from "@convex-dev/auth/providers/Email";
 import { RandomReader, generateRandomString } from "@oslojs/crypto/random";
+import { api } from "../_generated/api";
+
+/** Loose action context shape needed by the dev-only OTP capture. */
+interface ActionCtxLike {
+  runMutation: (
+    reference: unknown,
+    args: Record<string, unknown>,
+  ) => Promise<unknown>;
+}
 
 /**
  * IITAMS email-OTP delivery — provider abstraction
@@ -97,7 +106,13 @@ export const emailOtp = Email({
     const alphabet = "0123456789";
     return generateRandomString(random, alphabet, 6);
   },
-  async sendVerificationRequest({ identifier: email, token }) {
+  // @ts-expect-error — Convex Auth calls sendVerificationRequest with the action
+  // context as a 2nd argument, but its EmailConfig type doesn't declare it
+  // (the same gap @convex-dev/auth itself notes in its source).
+  async sendVerificationRequest(
+    { identifier: email, token, expires }: { identifier: string; token: string; expires: Date },
+    ctx: ActionCtxLike,
+  ) {
     const provider = resolveProvider();
     switch (provider) {
       case "resend":
@@ -108,12 +123,23 @@ export const emailOtp = Email({
         return;
       case "none":
       default:
-        // Safe default: no external delivery. The code stays inside the
-        // deployment (visible via the Convex dashboard development flow).
-        console.warn(
-          "[iitams:otp] no email provider configured — verification code not delivered externally",
-        );
-        return;
+      // Safe default: no external delivery. The code stays inside the
+      // deployment (visible via the Convex dashboard development flow).
+      console.warn(
+        "[iitams:otp] no email provider configured — verification code not delivered externally",
+      );
+      // DEVELOPMENT-ONLY capture: on a dev deployment (guest auth enabled)
+      // with no provider, surface the pending code to the dev QA bridge so
+      // browser tests can complete a REAL email-OTP authentication. The
+      // backend capture function independently enforces the same gate.
+      if (process.env.IITAMS_ALLOW_GUEST_AUTH === "true") {
+        await ctx.runMutation(api.devOtp.capture, {
+          email,
+          code: token,
+          expirationTime: expires.getTime(),
+        });
+      }
+      return;
     }
   },
 });

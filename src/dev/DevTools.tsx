@@ -88,6 +88,53 @@ function DevQaBridge() {
       async whoAmI() {
         return await client.query(api.session.getSession, {});
       },
+      async seedVerifiedTestUser(email: string) {
+        return await client.mutation(api.session.seedVerifiedTestUser, {
+          email,
+          name: email.split("@")[0],
+        });
+      },
+      /**
+       * DEV-ONLY pending-OTP reader for the browser-test bridge: returns the
+       * verification code captured by the email-otp provider's no-delivery
+       * branch so tests can complete a REAL email-OTP authentication for a
+       * seeded test identity. Backend-gated by api.devOtp.pending (refuses
+       * unless guest auth is enabled).
+       */
+      async pendingOtp(email: string) {
+        return await client.query(api.devOtp.pending, { email });
+      },
+      /**
+       * DEV-ONLY authorization probe: attempts an admin.view–guarded query
+       * and reports only whether it was DENIED (never returns queried rows).
+       * Used by the effective-membership e2e to prove the member's OWN
+       * session is refused by the backend authorization boundary.
+       */
+      async probeAdminApi() {
+        try {
+          await client.query(api.admin.listUsers, {});
+          return { denied: false };
+        } catch {
+          return { denied: true };
+        }
+      },
+      /**
+       * DEV-ONLY authorization probe: attempts to provision the given email
+       * and reports ONLY whether the backend REFUSED. Returns no user data.
+       * Used by the effective-membership e2e to prove that suspended and
+       * deactivated memberships cannot regain access through provisioning.
+       */
+      async probeProvision(email: string) {
+        try {
+          await client.mutation(api.admin.provisionMember, {
+            email,
+            initialRole: "member",
+          });
+          return { refused: false };
+        } catch {
+          return { refused: true };
+        }
+      },
     };
     return () => {
       delete (window as unknown as Record<string, unknown>).__IITAMS_DEV_QA__;

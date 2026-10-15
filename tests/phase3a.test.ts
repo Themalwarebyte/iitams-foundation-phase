@@ -71,17 +71,21 @@ describe("admin backend authorization (source guards)", () => {
     expect(gateCount).toBe(queryCount);
   });
 
-  test("every exported admin mutation is gated on admin.manage (Batch 2A)", () => {
-    // The membership-lifecycle mutation is the only permitted write surface,
-    // and it must always go through the=admin.manage gate.
+  test("every exported admin mutation is gated on admin.manage (Batch 2A/2B)", () => {
+    // Membership-lifecycle and provisioning are the only permitted write
+    // surfaces, and both must always go through the admin.manage gate.
     const mutations = (adminSrc.match(/export const \w+ = mutation\(\{/g) ?? []);
-    expect(mutations.length).toBe(1);
+    expect(mutations.length).toBe(2);
     expect(mutations[0]).toContain("setMembershipStatus");
-    const mutSrc = adminSrc.match(
-      /export const setMembershipStatus = mutation\(\{[\s\S]*?\n\}\);/,
-    );
-    expect(mutSrc).not.toBeNull();
-    expect(mutSrc![0]).toContain('requirePermission(ctx, "admin.manage")');
+    expect(mutations[1]).toContain("provisionMember");
+    for (const name of ["setMembershipStatus", "provisionMember"] as const) {
+      const mutSrc = adminSrc.match(
+        new RegExp(`export const ${name} = mutation\\([^;]*requirePermission\\(ctx,`),
+      );
+      expect(mutSrc).not.toBeNull();
+    }
+    const gateCount = (adminSrc.match(/requirePermission\(ctx, "admin\.manage"\)/g) ?? []).length;
+    expect(gateCount).toBe(2);
   });
 
   test("the admin module contains no delete/replace operations (no destructive paths)", () => {
