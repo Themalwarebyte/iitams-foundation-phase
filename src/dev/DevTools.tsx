@@ -88,22 +88,13 @@ function DevQaBridge() {
       async whoAmI() {
         return await client.query(api.session.getSession, {});
       },
-      async seedVerifiedTestUser(email: string) {
-        return await client.mutation(api.session.seedVerifiedTestUser, {
-          email,
-          name: email.split("@")[0],
-        });
-      },
-      /**
-       * DEV-ONLY pending-OTP reader for the browser-test bridge: returns the
-       * verification code captured by the email-otp provider's no-delivery
-       * branch so tests can complete a REAL email-OTP authentication for a
-       * seeded test identity. Backend-gated by api.devOtp.pending (refuses
-       * unless guest auth is enabled).
-       */
-      async pendingOtp(email: string) {
-        return await client.query(api.devOtp.pending, { email });
-      },
+      // NOTE (Batch 2B hardening): NO OTP or test-identity helpers here.
+      // The bridge deliberately exposes no function that can read any user's
+      // verification code or mint verified identities — both live behind the
+      // trusted, token-guarded server-side test harness (src/convex/http.ts:
+      // POST /api/dev-otp, POST /api/dev-seed-test-user) and are invoked
+      // directly by the trusted test runner, never through the browser.
+      //
       /**
        * DEV-ONLY authorization probe: attempts an admin.view–guarded query
        * and reports only whether it was DENIED (never returns queried rows).

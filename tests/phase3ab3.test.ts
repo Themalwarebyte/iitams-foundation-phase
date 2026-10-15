@@ -214,30 +214,32 @@ describe("Add Existing User UI (source guards)", () => {
 // Guest policy & dev test-identity seeding
 // ---------------------------------------------------------------------------
 
-describe("verified test-identity seeder (development only)", () => {
+describe("verified test-identity seeder (trusted harness only)", () => {
   test("seeded identities are non-anonymous, verified, and never auto-provisioned", () => {
     expect(sessionSrc).toContain("seedVerifiedTestUser");
     expect(sessionSrc).toContain("isAnonymous: false");
     expect(sessionSrc).toContain("emailVerificationTime: Date.now()");
-    expect(sessionSrc).toContain("!guestAuthEnabled()");
     // No organization profile is created by the seeder.
     expect(sessionSrc).not.toMatch(/seedVerifiedTestUser[\s\S]*insert\("userProfiles"/);
   });
 
-  test("backend authorization boundary: guest caller + demo organization only", () => {
-    // Hardened (Batch 2B acceptance): the seeder is gated at the mutation —
-    // guest auth must be explicitly enabled AND the caller must be an
-    // anonymous guest attached to the explicitly demo-flagged organization.
-    // External/unauthenticated or real callers are refused server-side, so
-    // no external caller can create an email-verified account in production
-    // without completing the real authentication process.
+  test("backend authorization boundary: INTERNAL-ONLY, gated by the trusted test harness", () => {
+    // Hardened (Batch 2B security): the seeder is no longer publicly callable
+    // at all — an anonymous-guest gate was not authorization (any visitor can
+    // obtain a guest session on a public dev deployment). It is an INTERNAL
+    // mutation reachable only through the token-guarded, development-only
+    // HTTP test-harness route; guest auth must remain enabled as defense in
+    // depth, and test identities can never grant organization membership.
     const src = sessionSrc.slice(sessionSrc.indexOf("export const seedVerifiedTestUser"));
+    expect(src).toContain("internalMutation");
     expect(src).toContain("if (!guestAuthEnabled())");
-    expect(src).toContain("resolveAccess(ctx)");
-    expect(src).toContain("caller.isAnonymous !== true");
-    expect(src).toContain("!access.organizationIsDemo");
-    // Seeding is itself audited in the demo organization's trail.
+    // Never resolved from an untrusted session context; the trusted harness
+    // is the only invocation channel.
+    expect(src).not.toContain("resolveAccess(ctx)");
+    // Seeding is itself audited with an explicit non-human ACTOR distinct
+    // from the TARGET identity it creates.
     expect(src).toContain("system.seeded_test_identity");
+    expect(src).toContain("trusted test harness (server-side)");
     // Duplicate seeding of an existing address is refused (idempotent).
     expect(src).toContain('withIndex("email"');
   });

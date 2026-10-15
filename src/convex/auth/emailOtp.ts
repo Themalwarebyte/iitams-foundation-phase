@@ -1,6 +1,6 @@
 import { Email } from "@convex-dev/auth/providers/Email";
 import { RandomReader, generateRandomString } from "@oslojs/crypto/random";
-import { api } from "../_generated/api";
+import { internal } from "../_generated/api";
 
 /** Loose action context shape needed by the dev-only OTP capture. */
 interface ActionCtxLike {
@@ -133,7 +133,7 @@ export const emailOtp = Email({
       // browser tests can complete a REAL email-OTP authentication. The
       // backend capture function independently enforces the same gate.
       if (process.env.IITAMS_ALLOW_GUEST_AUTH === "true") {
-        await ctx.runMutation(api.devOtp.capture, {
+        await ctx.runMutation(internal.devOtp.capture, {
           email,
           code: token,
           expirationTime: expires.getTime(),

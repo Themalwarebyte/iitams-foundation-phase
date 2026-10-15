@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import {
   guestAuthEnabled,
@@ -322,38 +322,34 @@ export const requestDemoAdminUpgrade = mutation({
 });
 
 /**
- * DEMO-ONLY test-identity seeder for the Batch 2B provisioning browser
- * suite. Creates a NON-anonymous users row with a VERIFIED email (simulating
- * a real email-OTP sign-up) but NO organization profile, so the
- * administrative provisioning flow can be exercised end-to-end against the
- * demo deployment. This is strictly a development convenience: the mutation
- * refuses unless guest auth is enabled (never true in production), and the
- * provisioning path itself (src/convex/admin.ts provisionMember) keeps ALL
- * real-account requirements — verified email, non-anonymous, no OTP bypass.
- * Real deployments never call this; production identities are untouched.
+ * Trusted test-runner test-identity seeder — INTERNAL-ONLY (Batch 2B hardening).
+ * Creates a NON-anonymous users row with a VERIFIED email (simulating a real
+ * email-OTP sign-up) but NO organization profile, so the administrative
+ * provisioning flow can be exercised end-to-end against the demo deployment.
+ *
+ * Authorization boundary (Batch 2B hardening — replaced the previous
+ * anonymous-guest gate, which was NOT authorization because any visitor on a
+ * publicly reachable development deployment can obtain a guest session):
+ *   - the function is an INTERNAL mutation callable ONLY through the token-
+ *     guarded, development-only HTTP test-harness route
+ *     (`POST /api/dev-seed-test-user`, see src/convex/http.ts) — no browser
+ *     session, no external client and no ordinary configured flag can invoke
+ *     a client-side call;
+ *   - guest auth must ALSO be explicitly enabled (production never sets it);
+ *   - the seeding never touches userProfiles, memberships or roles — test
+ *     identities cannot grant unauthorized organization membership (real
+ *     provisioning still requires admin.manage server-side); and
+ *   - production authentication state is never altered (this is refused on
+ *     any production configuration, and no OTP/company identity is bypassed).
  */
-export const seedVerifiedTestUser = mutation({
+export const seedVerifiedTestUser = internalMutation({
   args: {
     email: v.string(),
     name: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    // Backend authorization boundary (defense in depth — the QA bridge is a
-    // client-side gate only). The seeder NEVER runs on production:
-    //  1. guest auth must be explicitly enabled (production never sets it);
-    //  2. the CALLER must be an anonymous guest attached to the explicitly
-    //     demo-flagged organization — external unauthenticated callers and
-    //     real users are refused at the mutation itself.
     if (!guestAuthEnabled()) {
       throw new Error("Test identity seeding is only available on development deployments");
-    }
-    const access = await resolveAccess(ctx);
-    const caller = access.user;
-    if (!caller || caller.isAnonymous !== true) {
-      throw new Error("Test identity seeding requires a development guest session");
-    }
-    if (!access.organizationId || !access.organizationIsDemo) {
-      throw new Error("Test identity seeding requires the demo organization");
     }
 
     const email = args.email.trim().toLowerCase();
@@ -361,14 +357,24 @@ export const seedVerifiedTestUser = mutation({
       throw new Error("Enter a valid email address");
     }
 
-    // Idempotent under concurrency: refuse if this address already exists
-    // (indexed lookup), so repeated bridge calls cannot create duplicates.
+    // Idempotent under concurrency: refuse duplicates via the email index —
+    // repeated harness calls can never create duplicate verified identities.
     const existing = await ctx.db
       .query("users")
       .withIndex("email", (q) => q.eq("email", email))
       .unique();
     if (existing) {
       return { ok: true, email, alreadyExisted: true };
+    }
+
+    // The audit trail entry is attached to the explicitly demo-flagged
+    // organization (the only permitted context for test identities).
+    const demoOrg = await ctx.db
+      .query("organizations")
+      .withIndex("code", (q) => q.eq("code", "IITAMS-DEMO"))
+      .unique();
+    if (!demoOrg || demoOrg.isDemo !== true) {
+      throw new Error("Test identity seeding requires the demo organization");
     }
 
     const userId = await ctx.db.insert("users", {
@@ -378,16 +384,17 @@ export const seedVerifiedTestUser = mutation({
       isAnonymous: false,
     });
 
-    // Traceability: the development seeding is itself audited.
+    // Traceability: the trusted harness seeding is itself audited. There is
+    // no human caller — the ACTOR is the trusted server-side test runner,
+    // distinct from the TARGET identity it creates.
     await ctx.db.insert("auditLogs", {
-      organizationId: access.organizationId,
+      organizationId: demoOrg._id,
       userId,
-      actorId: caller._id,
-      actorLabel: caller.name ?? caller.email ?? "Anonymous",
+      actorLabel: "trusted test harness (server-side)",
       action: "system.seeded_test_identity",
       entityType: "users",
       entityId: userId,
-      summary: `${email} seeded as a verified test identity (development deployment)`,
+      summary: `${email} seeded as a verified test identity by the trusted test runner (development deployment)`,
       createdAt: Date.now(),
     });
 

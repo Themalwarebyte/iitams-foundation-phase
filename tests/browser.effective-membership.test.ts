@@ -1,5 +1,7 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { chromium, type Page, type Browser } from "playwright-core";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * IITAMS Phase 3A Batch 2B — effective membership acceptance (e2e).
@@ -188,27 +190,62 @@ async function sessionInfo(page: Page): Promise<SessionInfo | null> {
   });
 }
 
-/** Read the pending dev OTP for `email` (backend-gated query). */
+/**
+ * Trusted server-side test harness (Batch 2B hardening): the runner calls the
+ * token-guarded HTTP routes directly — OTP codes and test-identity seeding
+ * are never exposed to the browser QA bridge. The secret is read from the
+ * runner environment (or the gitignored local runner file); it is never part
+ * of any browser bundle or source code.
+ */
+// Convex httpAction routes live on the deployment's HTTP (site) URL.
+const HARNESS_URL =
+  process.env.VITE_CONVEX_SITE_URL ?? "http://127.0.0.1:3211";
+
+function testerToken(): string {
+  const fromEnv = process.env.IITAMS_TESTER_TOKEN;
+  if (fromEnv && fromEnv.trim()) return fromEnv.trim();
+  try {
+    return readFileSync(join(process.cwd(), ".iitams-tester-token"), "utf8").trim();
+  } catch {
+    throw new Error(
+      "E2E BLOCKED: trusted test-runner token not configured (expected IITAMS_TESTER_TOKEN in the runner environment or the gitignored .iitams-tester-token file) — the backend test harness is remote, not the browser",
+    );
+  }
+}
+
+async function harnessPost(
+  path: string,
+  email: string,
+): Promise<Response> {
+  return await fetch(`${HARNESS_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-iitams-tester-token": testerToken(),
+    },
+    body: JSON.stringify({ email }),
+  });
+}
+
+/** Read the pending dev OTP for `email` via the TRUSTED harness. */
 async function pendingOtp(
-  page: Page,
   email: string,
   timeoutMs = 20000,
 ): Promise<string | null> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const code = await page.evaluate(async (addr) => {
-      const qa = (window as unknown as Record<string, unknown>).__IITAMS_DEV_QA__ as
-        | { pendingOtp(email: string): Promise<{ code: string } | null> }
-        | undefined;
-      if (!qa?.pendingOtp) return null;
-      try {
-        return (await qa.pendingOtp(addr))?.code ?? null;
-      } catch {
-        return null;
+    try {
+      const res = await harnessPost("/api/dev-otp", email);
+      if (res.ok) {
+        const data = (await res.json()) as { code?: string };
+        if (data.code) return data.code;
+      } else if (res.status === 403) {
+        throw new Error("E2E BLOCKED: test harness refused the runner (token/dev gate)");
       }
-    }, email);
-    if (code) return code;
-    await page.waitForTimeout(500);
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith("E2E BLOCKED")) throw err;
+    }
+    await new Promise((r) => setTimeout(r, 500));
   }
   return null;
 }
@@ -235,7 +272,7 @@ async function signInWithOtp(
       reason: `code entry step did not appear${alert ? ` (alert: ${alert.trim().slice(0, 200)})` : ""}`,
     };
   }
-  const code = await pendingOtp(page, email);
+  const code = await pendingOtp(email);
   if (!code) {
     return { ok: false, reason: "pending OTP not captured (dev gate off?)" };
   }
@@ -340,18 +377,21 @@ describe("IITAMS Phase 3A Batch 2B — effective membership with independent ses
       // ------------------------------------------------------------------
       // A provisions an existing verified user via the UI
       // ------------------------------------------------------------------
+      // Trusted test harness (never the browser bridge): create an existing
+      // verified (non-anonymous) account without an organization profile.
       const email = `eff2b-${Date.now()}@test.example`;
-      const seeded = await a.page.evaluate(async (addr) => {
-        const qa = (window as unknown as Record<string, unknown>).__IITAMS_DEV_QA__ as
-          | { seedVerifiedTestUser(email: string): Promise<{ ok: boolean }> | undefined }
-          | undefined;
-        if (!qa) return false;
-        try {
-          return (await qa.seedVerifiedTestUser(addr))?.ok ?? false;
-        } catch {
-          return false;
+      let seeded = false;
+      try {
+        const res = await harnessPost("/api/dev-seed-test-user", email);
+        if (res.ok) {
+          const data = (await res.json()) as { ok?: boolean };
+          seeded = data.ok === true;
+        } else if (res.status === 403) {
+          throw new Error("E2E BLOCKED: test harness refused the runner (token/dev gate)");
         }
-      }, email);
+      } catch (err) {
+        if (err instanceof Error && err.message.startsWith("E2E BLOCKED")) throw err;
+      }
       if (!seeded) {
         if (SOFT) {
           console.warn("[e2e:SKIPPED] effective-membership: test-identity seeder unavailable");
