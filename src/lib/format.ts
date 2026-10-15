@@ -26,3 +26,11 @@ export function formatPercent(value: number | null | undefined): string {
 
 /** Canonical date-fns format used for compact table timestamps. */
 export const TABLE_DATE_FORMAT = "d MMM yyyy";
+
+/** Compact datetime for audit-log tables: "12 Mar 2026, 14:05" */
+export function formatDateTime(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return format(date, "d MMM yyyy, HH:mm");
+}

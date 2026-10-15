@@ -44,6 +44,10 @@ export const getSession = query({
         role: null,
         isProvisioned: false,
         awaitingProvisioning: true,
+        // Membership lifecycle is surfaced so the UI can distinguish an
+        // administrator-held account (awaiting assignment) from one whose
+        // membership was suspended/deactivated by an administrator.
+        membershipStatus: access.membershipStatus,
         organization: null,
         permissions: {
           dashboard: false,
@@ -92,6 +96,7 @@ export const getSession = query({
       role: access.role ?? null,
       isProvisioned: true,
       awaitingProvisioning: false,
+      membershipStatus: access.membershipStatus,
       permissions,
       organization: org
         ? {
@@ -261,5 +266,57 @@ export const requestDemoRoleUpgrade = mutation({
     });
 
     return { ok: true, role: "audit_manager" as const };
+  },
+});
+
+/**
+ * DEMO-ONLY administrator escalation for development/testing of the Phase-3A
+ * administration pages (e.g. the browser E2E suite exercising admin.view
+ * gating). Same refusal contract as requestDemoRoleUpgrade: the caller must
+ * be an anonymous guest attached to an explicitly demo-flagged organization.
+ * NEVER grants anything on production deployments — the platform `admin` role
+ * is assigned to real users by an administrator provisioning workflow, not
+ * by this mutation.
+ */
+export const requestDemoAdminUpgrade = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const access = await resolveAccess(ctx);
+    const user = access.user;
+    if (!user || !user.isAnonymous) {
+      throw new Error("Demo admin upgrades apply only to guest sessions");
+    }
+    if (!guestAuthEnabled()) {
+      throw new Error("Guest access is disabled on this deployment");
+    }
+    if (!access.organizationId || !access.organizationIsDemo) {
+      throw new Error("Demo admin upgrades require the demo organization");
+    }
+
+    const profile = await ctx.db
+      .query("userProfiles")
+      .withIndex("userId", (q) => q.eq("userId", user._id))
+      .unique();
+    if (!profile || profile.organizationId !== access.organizationId) {
+      throw new Error("Guest must be provisioned into the demo organization first");
+    }
+
+    await ctx.db.patch(profile._id, {
+      role: "admin",
+      lastSeenAt: Date.now(),
+    });
+
+    await ctx.db.insert("auditLogs", {
+      organizationId: access.organizationId,
+      userId: user._id,
+      actorLabel: user.name ?? user.email ?? "Anonymous",
+      action: "user.demo_role_upgraded",
+      entityType: "userProfiles",
+      entityId: profile._id,
+      summary: "Guest session escalated to platform admin (demo organization)",
+      createdAt: Date.now(),
+    });
+
+    return { ok: true, role: "admin" as const };
   },
 });

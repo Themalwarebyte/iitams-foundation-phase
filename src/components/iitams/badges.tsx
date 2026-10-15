@@ -61,6 +61,10 @@ const STATUS_CHIP: Record<string, string> = {
   accepted: "bg-warning/15 text-foreground/90 border-warning/40",
   false_positive: "bg-muted text-muted-foreground border-border",
   remediated: "bg-success/10 text-success border-success/25",
+  // organization-membership lifecycle (Phase 3A — Batch 2A)
+  active: "bg-success/10 text-success border-success/25",
+  suspended: "bg-warning/15 text-foreground/90 border-warning/40",
+  deactivated: "bg-critical/10 text-critical border-critical/25",
   closed: "bg-muted text-muted-foreground border-border",
   cancelled: "bg-muted text-muted-foreground border-border",
   deferred: "bg-muted text-muted-foreground border-border",

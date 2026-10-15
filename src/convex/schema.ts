@@ -297,6 +297,19 @@ const schema = defineSchema(
       jobTitle: v.optional(v.string()),
       department: v.optional(v.string()),
       phone: v.optional(v.string()),
+      // Organization-membership lifecycle state (Phase 3A — Batch 2A). The
+      // security boundary is the membership (this profile row), never a
+      // global user status. Absent value resolves to "active" so existing
+      // rows keep access without a data migration. Suspended/deactivated
+      // memberships are denied all organization access server-side
+      // (src/convex/access.ts resolveAccess).
+      membershipStatus: v.optional(
+        v.union(
+          v.literal("active"),
+          v.literal("suspended"),
+          v.literal("deactivated"),
+        ),
+      ),
       // Deliberate permission overrides (grants), separate from role
       // assignment. Evaluated explicitly where a feature requires it.
       permissionOverrides: v.optional(v.array(v.string())),

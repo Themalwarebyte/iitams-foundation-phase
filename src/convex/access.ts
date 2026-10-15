@@ -1,6 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { QueryCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
+import { effectiveMembershipStatus, type MembershipStatus } from "../lib/membership";
 
 /**
  * IITAMS access control (Phase-1 final)
@@ -128,6 +129,15 @@ export function roleHasPermission(
   return ROLE_PERMISSIONS[role]?.includes(permission) ?? false;
 }
 
+/**
+ * Permission registry view used by the Phase-3A role visibility page: the
+ * effective permission set for every registered role, straight from
+ * ROLE_PERMISSIONS (no duplication of the registry in the UI layer).
+ */
+export function permissionsForRole(role: IitamsRole): IitamsPermission[] {
+  return [...(ROLE_PERMISSIONS[role] ?? [])];
+}
+
 // ---------------------------------------------------------------------------
 // Identity / tenancy resolution
 // ---------------------------------------------------------------------------
@@ -157,6 +167,11 @@ export interface AccessContext {
   isGuest: boolean;
   /** False when the user is authenticated but has no provisioned org. */
   isProvisioned: boolean;
+  /**
+   * Organization-membership lifecycle state of the resolvable profile
+   * (Phase 3A — Batch 2A). "active" when absent/legacy.
+   */
+  membershipStatus: MembershipStatus;
 }
 
 /**
@@ -174,6 +189,7 @@ export async function resolveAccess(ctx: QueryCtx): Promise<AccessContext> {
       organizationIsDemo: false,
       isGuest: false,
       isProvisioned: false,
+      membershipStatus: "active" as const,
     };
   }
 
@@ -187,6 +203,7 @@ export async function resolveAccess(ctx: QueryCtx): Promise<AccessContext> {
       organizationIsDemo: false,
       isGuest: true,
       isProvisioned: false,
+      membershipStatus: effectiveMembershipStatus(undefined),
     };
   }
 
@@ -202,12 +219,28 @@ export async function resolveAccess(ctx: QueryCtx): Promise<AccessContext> {
     ? (rawRole as IitamsRole)
     : undefined;
 
+  // Organization-membership lifecycle (Phase 3A — Batch 2A): a suspended or
+  // deactivated membership denies ALL organization access regardless of the
+  // member's role. Denial is implemented by withholding organization CONTEXT
+  // (and therefore isProvisioned) — the same fail-closed shape an
+  // unprovisioned user gets, so every downstream requirePermission/
+  // tenant-scoped query denies uniformly. Legacy rows without the field
+  // resolve to "active" (no data migration needed).
+  const membershipStatus = effectiveMembershipStatus(profile?.membershipStatus);
+  const membershipActive = membershipStatus === "active";
+
   // Organization: ONLY an explicit profile assignment. No first-org fallback.
   let organizationId: Id<"organizations"> | null =
     profile?.organizationId ?? null;
   let organizationIsDemo = false;
 
-  if (organizationId) {
+  if (organizationId && !membershipActive) {
+    // Suspended/deactivated membership: deny tenant access immediately and
+    // skip the guest bootstrap below (a suspended member must not regain
+    // context through the demo-organization lookup).
+    organizationId = null;
+    organizationIsDemo = false;
+  } else if (organizationId) {
     const org = await ctx.db.get(organizationId);
     if (!org) {
       organizationId = null; // dangling reference → deny
@@ -256,6 +289,7 @@ export async function resolveAccess(ctx: QueryCtx): Promise<AccessContext> {
     organizationId,
     organizationIsDemo,
     isGuest,
+    membershipStatus,
     isProvisioned:
       profile?.organizationId != null &&
       organizationId !== null &&

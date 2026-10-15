@@ -1,5 +1,6 @@
 import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
+import { AdminGate, AdminRoute } from "./components/iitams/admin/AdminShell";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { ConvexReactClient } from "convex/react";
 import React, { StrictMode, lazy, Suspense } from "react";
@@ -70,6 +71,32 @@ const ActionsPage = lazy(() =>
 const ReportsPage = lazy(() =>
   import("./components/iitams/audit/ReportsPage").then((m) => ({
     default: m.ReportsPage,
+  })),
+);
+// Phase 3A administration pages (named exports mapped to default for lazy())
+const AdminDashboardPage = lazy(() =>
+  import("./components/iitams/admin/AdminDashboardPage").then((m) => ({
+    default: m.AdminDashboardPage,
+  })),
+);
+const AdminOrganizationsPage = lazy(() =>
+  import("./components/iitams/admin/AdminOrganizationsPage").then((m) => ({
+    default: m.AdminOrganizationsPage,
+  })),
+);
+const AdminUsersPage = lazy(() =>
+  import("./components/iitams/admin/AdminUsersPage").then((m) => ({
+    default: m.AdminUsersPage,
+  })),
+);
+const AdminRolesPage = lazy(() =>
+  import("./components/iitams/admin/AdminRolesPage").then((m) => ({
+    default: m.AdminRolesPage,
+  })),
+);
+const AdminAuditLogsPage = lazy(() =>
+  import("./components/iitams/admin/AdminAuditLogsPage").then((m) => ({
+    default: m.AdminAuditLogsPage,
   })),
 );
 
@@ -185,13 +212,10 @@ const MODULE_ROUTES = [
   "/reports/compliance",
   "/reports/cybersecurity",
   "/reports/bcm",
-  // Administration
-  "/admin/organizations",
-  "/admin/users",
-  "/admin/roles",
+  // Administration (Phase-3A scaffold routes remaining; dashboard,
+  // organizations, users, roles and audit-logs have dedicated routes below)
   "/admin/integrations",
   "/admin/system",
-  "/admin/audit-logs",
 ] as const;
 
 createRoot(document.getElementById("root")!).render(
@@ -254,6 +278,57 @@ createRoot(document.getElementById("root")!).render(
               {/* Phase-1 legacy audit paths → Phase-2 spec routes */}
               <Route path="/audit/working-papers" element={<AuditRedirect to="/audit/workpapers" />} />
               <Route path="/audit/corrective-actions" element={<AuditRedirect to="/audit/actions" />} />
+              {/* Phase 3A — Administration & Identity Management foundation */}
+              <Route
+                path="/admin/dashboard"
+                element={
+                  <AdminRoute>
+                    <AdminGate path="/admin/dashboard">
+                      <AdminDashboardPage />
+                    </AdminGate>
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/admin/organizations"
+                element={
+                  <AdminRoute>
+                    <AdminGate path="/admin/organizations">
+                      <AdminOrganizationsPage />
+                    </AdminGate>
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/admin/users"
+                element={
+                  <AdminRoute>
+                    <AdminGate path="/admin/users">
+                      <AdminUsersPage />
+                    </AdminGate>
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/admin/roles"
+                element={
+                  <AdminRoute>
+                    <AdminGate path="/admin/roles">
+                      <AdminRolesPage />
+                    </AdminGate>
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/admin/audit-logs"
+                element={
+                  <AdminRoute>
+                    <AdminGate path="/admin/audit-logs">
+                      <AdminAuditLogsPage />
+                    </AdminGate>
+                  </AdminRoute>
+                }
+              />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>

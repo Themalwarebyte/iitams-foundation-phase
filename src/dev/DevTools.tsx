@@ -82,6 +82,9 @@ function DevQaBridge() {
       async upgradeDemoRole() {
         return await client.mutation(api.session.requestDemoRoleUpgrade, {});
       },
+      async becomeDemoAdmin() {
+        return await client.mutation(api.session.requestDemoAdminUpgrade, {});
+      },
       async whoAmI() {
         return await client.query(api.session.getSession, {});
       },
