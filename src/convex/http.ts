@@ -143,4 +143,138 @@ http.route({
   }),
 });
 
+/**
+ * POST /api/dev-grant-demo-role { userId | email, role?, ttlMinutes? } —
+ * trusted test harness: grant an approved TEST demo role (audit_manager or
+ * admin) to a specific, already-provisioned anonymous demo guest. The actual
+ * role change runs through the INTERNAL mutation session.grantDemoTestRole
+ * (see src/convex/session.ts for the full authorization model). The guest's
+ * userId MUST come from the guest's own authorized session query — the
+ * runner reads it from the browser over the normal session channel and then
+ * calls this route directly; the tester token never enters the browser.
+ */
+http.route({
+  path: "/api/dev-grant-demo-role",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (!isTrustedDevTester(request)) return jsonError(403);
+    let args: { userId?: unknown; email?: unknown; role?: unknown; ttlMinutes?: unknown };
+    try {
+      args = (await request.json()) as typeof args;
+    } catch {
+      return jsonError(403); // malformed body from an unauthorized caller: uniform refusal
+    }
+    if (typeof args.userId !== "string" || args.userId.length === 0) {
+      return new Response(JSON.stringify({ error: "unauthorized" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (
+      args.role !== undefined &&
+      (typeof args.role !== "string" ||
+        (args.role !== "audit_manager" && args.role !== "admin"))
+    ) {
+      // Unknown or unsupported roles are rejected outright — never defaulted.
+      return new Response(
+        JSON.stringify({ error: "unknown or unsupported demo test role" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    // Hygiene sweep first: persist expired grants (and thereby propagate the
+    // expiry to cached session reads, which only freshen on server writes).
+    await ctx.runMutation(internal.session.expireDemoTestGrants).catch(() => undefined);
+    const run = await ctx
+      .runMutation(internal.session.grantDemoTestRole, {
+        userId: args.userId as never,
+        role: typeof args.role === "string"
+          ? args.role
+          : undefined,
+        ttlMinutes: typeof args.ttlMinutes === "number" && Number.isFinite(args.ttlMinutes)
+          ? args.ttlMinutes
+          : undefined,
+      })
+      .then(
+        (result) => new Response(JSON.stringify(result), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .catch((err: unknown) =>
+        new Response(JSON.stringify({ error: (err as Error).message.slice(0, 200) }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    return run;
+  }),
+});
+
+/**
+ * POST /api/dev-revoke-demo-role { userId } — trusted test harness: revoke a
+ * demo guest's test role (restores the read-only member tier). Same trusted-
+ * runner-only authorization; teardown-revocation of every grant the runner
+ * made is the primary lifecycle control (the server-enforced deadline is
+ * the backstop when no teardown runs).
+ */
+http.route({
+  path: "/api/dev-revoke-demo-role",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (!isTrustedDevTester(request)) return jsonError(403);
+    let args: { userId?: unknown };
+    try {
+      args = (await request.json()) as typeof args;
+    } catch {
+      return jsonError(403);
+    }
+    if (typeof args.userId !== "string" || args.userId.length === 0) {
+      return jsonError(403);
+    }
+    // Hygiene sweep first (see grant route).
+    await ctx.runMutation(internal.session.expireDemoTestGrants).catch(() => undefined);
+    const run = await ctx
+      .runMutation(internal.session.revokeDemoTestRole, { userId: args.userId as never })
+      .then(
+        (result) => new Response(JSON.stringify(result), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .catch((err: unknown) =>
+        new Response(JSON.stringify({ error: (err as Error).message.slice(0, 200) }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    return run;
+  }),
+});
+
+/**
+ * POST /api/dev-expire-demo-grants — trusted test harness: persist every
+ * expired demo test grant (resetting those guests to the read-only tier and
+ * clearing the expiry state). This is the runner-side hook for asserting
+ * server-enforced expiry; revocation and grant routes run it automatically.
+ */
+http.route({
+  path: "/api/dev-expire-demo-grants",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (!isTrustedDevTester(request)) return jsonError(403);
+    try {
+      const result = await ctx.runMutation(internal.session.expireDemoTestGrants);
+      return new Response(JSON.stringify(result), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    } catch (err: unknown) {
+      return new Response(JSON.stringify({ error: (err as Error).message.slice(0, 200) }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+  }),
+});
+
 export default http;

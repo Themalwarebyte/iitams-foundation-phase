@@ -18,6 +18,7 @@ import { NAV_GROUPS } from "../src/lib/nav";
 const adminSrc = await Bun.file("src/convex/admin.ts").text();
 const mainSrc = await Bun.file("src/main.tsx").text();
 const sessionSrc = await Bun.file("src/convex/session.ts").text();
+const accessSrc = await Bun.file("src/convex/access.ts").text();
 const devToolsSrc = await Bun.file("src/dev/DevTools.tsx").text();
 
 // ---------------------------------------------------------------------------
@@ -175,25 +176,88 @@ describe("role registry visibility", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Demo admin escalation (dev/test convenience — production fail-closed)
+// Demo escalation model (internal-only, trusted harness — see
+// tests/security.demoescalation.test.ts for the runtime boundary)
 // ---------------------------------------------------------------------------
 
-describe("demo admin escalation guardrails", () => {
-  test("requestDemoAdminUpgrade is guest-only, demo-org-only and audited", () => {
-    expect(sessionSrc).toContain("requestDemoAdminUpgrade");
-    // Same refusal chain as the existing demo role upgrade.
+describe("demo escalation guardrails (internal-only model)", () => {
+  test("no public escalation mutations remain — internal–only grants via the harness", () => {
+    // The old public, session-based escalators must be gone entirely (only a
+    // historical docblock mention documents WHY they were removed).
+    expect(sessionSrc).not.toMatch(
+      /export const requestDemo(RoleUpgrade|AdminUpgrade) = mutation\(/,
+    );
+    // The only public mutating surface in the session module is the explicit
+    // guest provisioning path (joinDemoOrganization); every role-granting
+    // operation is INTERNAL (deployment refuses client calls).
+    const publicMutations = (
+      sessionSrc.match(/export const (\w+) = mutation\(/g) ?? []
+    ).map((m) => m.replace("export const ", "").replace(" = mutation(", ""));
+    expect(publicMutations).toEqual(["joinDemoOrganization"]);
+    expect(sessionSrc).toContain(
+      "export const grantDemoTestRole = internalMutation(",
+    );
+    expect(sessionSrc).toContain(
+      "export const revokeDemoTestRole = internalMutation(",
+    );
+  });
+
+  test("grantDemoTestRole enforces the full fail-closed authorization chain", () => {
     const fn = sessionSrc.match(
-      /export const requestDemoAdminUpgrade = mutation\(\{[\s\S]*?\n\}\);/,
+      /export const grantDemoTestRole = internalMutation\(\{[\s\S]*?\n\}\);/,
     );
     expect(fn).not.toBeNull();
     const src = fn![0];
-    expect(src).toContain("!user.isAnonymous");
-    expect(src).toContain("!guestAuthEnabled()");
-    expect(src).toContain("!access.organizationIsDemo");
+    // 1. dev-only deployment flag (production refuses everything).
+    expect(src).toContain("if (!guestAuthEnabled())");
+    // 2. target resolved from a validated userId argument (never a session).
+    expect(src).toContain("userId: v.id(\"users\")");
+    expect(src).toContain("ctx.db.get(args.userId)");
+    // 3/7. target must be an anonymous guest.
+    expect(src).toContain("!target.isAnonymous");
+    // 4/5/8. explicit IITAMS-DEMO membership, demo-flagged org, no other org.
+    expect(src).toContain("profile.organizationId !== demoOrg._id");
+    // The demo org is looked up through the shared requireDemoOrg guard,
+    // which is the ONLY permitted organization target (never arbitrary IDs).
+    expect(src).toContain("await requireDemoOrg(ctx)");
+    expect(sessionSrc).toContain('q.eq("code", "IITAMS-DEMO")');
+    expect(sessionSrc).toContain("demoOrg.isDemo !== true");
+    // 6. suspended/deactivated memberships refused.
+    expect(src).toContain("effectiveMembershipStatus(profile.membershipStatus)");
+    // 9. only the approved test roles — no arbitrary assignment.
+    for (const role of ["audit_manager", "admin"] as const) {
+      expect(src).toContain(`v.literal("${role}")`);
+    }
+    expect(src).not.toMatch(/v\.string\(\)\)\s*,\s*\n\s*\/\/\s*role/);
+    // 10. server-enforced expiration is part of the grant.
+    expect(src).toContain("demoRoleExpiresAt");
+    // 12. immutable audit entry: harness actor, guest target.
     expect(src).toContain('ctx.db.insert("auditLogs"');
+    expect(src).toContain("trusted test harness");
+    expect(src).toContain("user.demo_role_granted");
   });
 
-  test("dev QA bridge exposes becomeDemoAdmin (DEV bundle only)", () => {
-    expect(devToolsSrc).toContain("becomeDemoAdmin");
+  test("revokeDemoTestRole restores the read-only tier and is audited", () => {
+    const fn = sessionSrc.match(
+      /export const revokeDemoTestRole = internalMutation\(\{[\s\S]*?\n\}\);/,
+    );
+    expect(fn).not.toBeNull();
+    const src = fn![0];
+    expect(src).toContain("if (!guestAuthEnabled())");
+    expect(src).toContain("!target.isAnonymous");
+    expect(src).toContain('role: "member"');
+    expect(src).toContain("user.demo_role_revoked");
+  });
+
+  test("the expiry deadline is enforced in resolveAccess (server-side)", () => {
+    // src/convex/access.ts ignores the elevated profile role once the hard
+    // deadline passes, so expired grants can never authorize protected ops.
+    expect(accessSrc).toContain("demoRoleExpiresAt");
+    expect(accessSrc).toContain("const grantExpired =");
+  });
+
+  test("dev QA bridge exposes NO escalation helpers (harness-only grants)", () => {
+    expect(devToolsSrc).not.toContain("upgradeDemoRole");
+    expect(devToolsSrc).not.toContain("becomeDemoAdmin");
   });
 });

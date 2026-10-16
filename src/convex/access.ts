@@ -214,7 +214,20 @@ export async function resolveAccess(ctx: QueryCtx): Promise<AccessContext> {
 
   // Role: explicit validated field only (never inferred from permission
   // strings). Unknown values fail closed to undefined.
-  const rawRole = profile?.role ?? user.role;
+  //
+  // Trusted-test-harness demo grants expire SERVER-SIDE here: once a hard
+  // deadline has passed, the elevated role recorded on the profile resolves
+  // as if it had never been granted. This is the enforcement of the test
+  // privilege lifecycle (revoke-on-teardown + deadline): an expired grant
+  // can never authorize protected operations again, even if no cleanup ran.
+  // The deadline is written only by the internal harness mutations for demo
+  // guests, so legitimate roles are never affected.
+  const grantExpired =
+    profile?.demoRoleExpiresAt !== undefined &&
+    profile.demoRoleExpiresAt <= Date.now();
+  const rawRole = grantExpired
+    ? undefined
+    : profile?.role ?? user.role;
   let role = IITAMS_ROLES.includes(rawRole as IitamsRole)
     ? (rawRole as IitamsRole)
     : undefined;
@@ -270,10 +283,15 @@ export async function resolveAccess(ctx: QueryCtx): Promise<AccessContext> {
     // demo role escalation) broken on fresh deployments.
   }
 
-  // Guest policy: an anonymous session attached to the demo organization is
+  // Guest policy: an anonymous session attached to any organization is
   // granted the read-only "member" tier when no explicit role exists. This
   // NEVER applies to real users — unprovisioned/unroled real users stay
   // undefined (deny) until an administrator assigns them a role.
+  //
+  // A lingering demo-role grant (deadline not yet passed) does NOT fall back
+  // here: member is the pre-grant floor, so the stale-but-live elevated
+  // value is what resolves this cycle; it's only a step below the elevated
+  // tier and never an upgrade.
   if (isGuest && organizationId !== null && role === undefined) {
     role = "member";
   }

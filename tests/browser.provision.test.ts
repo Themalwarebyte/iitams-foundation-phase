@@ -1,47 +1,26 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { chromium, type Page, type Browser } from "playwright-core";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+  harnessPost,
+  grantDemoTestRole,
+  revokeAllEscalatedGuests,
+} from "./e2e-harness";
 
 /**
- * Trusted server-side test harness (Batch 2B hardening): the runner calls the
- * token-guarded HTTP routes directly — test-identity seeding is never
- * exposed to the browser QA bridge or any publicly callable endpoint.
+ * Trusted server-side test harness (Batch 2B hardening + demo-escalation
+ * hardening): the runner calls the token-guarded HTTP routes directly —
+ * test-identity seeding and demo role grants are never exposed to the
+ * browser QA bridge or any publicly callable endpoint.
  */
-// Convex httpAction routes live on the deployment's HTTP (site) URL.
-const HARNESS_URL =
-  process.env.VITE_CONVEX_SITE_URL ?? "http://127.0.0.1:3211";
-
-function testerToken(): string {
-  const fromEnv = process.env.IITAMS_TESTER_TOKEN;
-  if (fromEnv && fromEnv.trim()) return fromEnv.trim();
-  try {
-    return readFileSync(join(process.cwd(), ".iitams-tester-token"), "utf8").trim();
-  } catch {
-    throw new Error(
-      "E2E BLOCKED: trusted test-runner token not configured (expected IITAMS_TESTER_TOKEN in the runner environment or the gitignored .iitams-tester-token file); seeding must go through the trusted server-side harness, not the browser",
-    );
-  }
-}
-
-async function harnessPost(path: string, email: string): Promise<Response> {
-  return await fetch(`${HARNESS_URL}${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-iitams-tester-token": testerToken(),
-    },
-    body: JSON.stringify({ email }),
-  });
-}
 
 /**
  * IITAMS Phase 3A Batch 2B browser suite — member provisioning (e2e).
  * =====================================================================
  * Journey:
  *
- *  1. Session A signs in as a guest and escalates to demo platform admin via
- *     the dev-only QA bridge (same refusal chain as Batch 1/2A).
+ *  1. Session A signs in as an ordinary guest; the trusted test runner grants
+ *     the demo platform-admin TEST role via the token-guarded server-side
+ *     harness (never through the browser; revoked on teardown).
  *  2. A dev-gated seeder creates an EXISTING, VERIFIED, non-anonymous test
  *     account (simulating a real email-OTP sign-up) with no organization
  *     profile — the provisioning flow itself keeps every real-account check.
@@ -96,6 +75,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await browser?.close();
+await revokeAllEscalatedGuests();
 });
 
 function requireEnv(): void {
@@ -166,24 +146,13 @@ async function signInAsGuest(
   return { ok: true };
 }
 
+/**
+ * Trusted-runner grant of the demo platform-admin TEST role to the current
+ * guest session (see tests/e2e-harness.ts — the tester token never enters
+ * the browser).
+ */
 async function becomeDemoAdmin(page: Page): Promise<boolean> {
-  for (let attempt = 0; attempt < 8; attempt++) {
-    const ok = await page.evaluate(async () => {
-      const qa = (window as unknown as Record<string, unknown>).__IITAMS_DEV_QA__ as
-        | { becomeDemoAdmin(): Promise<unknown> }
-        | undefined;
-      if (!qa) return false;
-      try {
-        await qa.becomeDemoAdmin();
-        return true;
-      } catch {
-        return false;
-      }
-    });
-    if (ok) return true;
-    await page.waitForTimeout(1000);
-  }
-  return false;
+  return await grantDemoTestRole(page, "admin");
 }
 
 describe("IITAMS Phase 3A Batch 2B — member provisioning", () => {

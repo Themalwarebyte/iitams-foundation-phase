@@ -1,5 +1,6 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { chromium, type Page, type Browser } from "playwright-core";
+import { grantDemoTestRole, revokeAllEscalatedGuests } from "./e2e-harness";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -8,9 +9,11 @@ import { join } from "node:path";
  * ==================================================================
  * Verifies effective access with TWO SEPARATE authenticated identities:
  *
- *  Identity A (administrator): guest session escalated to demo platform
- *   admin via the dev-only QA bridge, then provisions an existing verified
- *   user through the "Add Existing User" UI flow.
+ *  Identity A (administrator): ordinary guest session; the trusted test
+ *   runner grants the demo platform-admin TEST role via the token-guarded
+ *   server-side harness (never through the browser; revoked on teardown),
+ *   then A provisions an existing verified user through the "Add Existing
+ *   User" UI flow.
  *  Identity B (provisioned member): signs in INDEPENDENTLY through the real
  *   email-OTP flow on its own page/session, using the dev-only pending-OTP
  *   reader (backend-gated `api.devOtp.pending`) to retrieve the code that
@@ -75,6 +78,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await browser?.close();
+await revokeAllEscalatedGuests();
 });
 
 function requireEnv(): void {
@@ -145,24 +149,13 @@ async function signInAsGuest(
   return { ok: true };
 }
 
+/**
+ * Trusted-runner grant of the demo platform-admin TEST role to the current
+ * guest session (see tests/e2e-harness.ts — the tester token never enters
+ * the browser).
+ */
 async function becomeDemoAdmin(page: Page): Promise<boolean> {
-  for (let attempt = 0; attempt < 8; attempt++) {
-    const ok = await page.evaluate(async () => {
-      const qa = (window as unknown as Record<string, unknown>).__IITAMS_DEV_QA__ as
-        | { becomeDemoAdmin(): Promise<unknown> }
-        | undefined;
-      if (!qa) return false;
-      try {
-        await qa.becomeDemoAdmin();
-        return true;
-      } catch {
-        return false;
-      }
-    });
-    if (ok) return true;
-    await page.waitForTimeout(1000);
-  }
-  return false;
+  return await grantDemoTestRole(page, "admin");
 }
 
 type SessionInfo = {
@@ -367,11 +360,11 @@ describe("IITAMS Phase 3A Batch 2B — effective membership with independent ses
       }
       if (!(await becomeDemoAdmin(a.page))) {
         if (SOFT) {
-          console.warn("[e2e:SKIPPED] effective-membership: admin bridge unavailable");
+          console.warn("[e2e:SKIPPED] effective-membership: trusted-runner grant unavailable");
           await a.page.close();
           return;
         }
-        throw new Error("E2E GATE FAILED: admin bridge unavailable");
+        throw new Error("E2E GATE FAILED: trusted-runner grant unavailable");
       }
 
       // ------------------------------------------------------------------

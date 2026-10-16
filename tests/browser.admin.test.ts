@@ -1,5 +1,6 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { chromium, type Page, type Browser } from "playwright-core";
+import { grantDemoTestRole, revokeAllEscalatedGuests } from "./e2e-harness";
 
 /**
  * IITAMS Phase 3A browser suite — Administration foundation (strict gates,
@@ -7,10 +8,13 @@ import { chromium, type Page, type Browser } from "playwright-core";
  * `bun run test:e2e:admin` or IITAMS_E2E_STRICT=1; soft skips only with
  * IITAMS_E2E_SOFT=1.
  *
- * Journey: guest sign-in → dev-only demo admin escalation → Administration
+ * Journey: guest sign-in (ordinary demo guest) → TRUSTED-RUNNER demo admin
+ * grant via the token-guarded server-side harness (the browser itself never
+ * escalates; the tester token never enters the browser) → Administration
  * section visible in the sidebar → dashboard shows real KPI tiles →
  * organizations/users/roles/audit-logs pages render → signed-out visitor is
- * blocked from /admin/dashboard. No page errors anywhere.
+ * blocked from /admin/dashboard. Every escalated guest is revoked on
+ * teardown. No page errors anywhere.
  */
 
 const BASE = process.env.IITAMS_E2E_BASE_URL ?? "http://localhost:5173";
@@ -50,6 +54,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await browser?.close();
+await revokeAllEscalatedGuests();
 });
 
 function requireEnv(): void {
@@ -117,28 +122,14 @@ async function signInAsGuest(
 }
 
 /**
- * Escalate the guest to the demo platform-admin tier (dev-only bridge).
- * Retries briefly: AppLayout provisions the guest profile asynchronously
- * after sign-in, and the mutation refuses unprovisioned guests.
+ * Grant the demo platform-admin TEST role to the current guest session via
+ * the TRUSTED RUNNER harness (the browser session itself signs in as an
+ * ordinary guest and never touches the tester secret). Retries briefly:
+ * AppLayout provisions the guest profile asynchronously after sign-in and
+ * the backend refuses grants for not-yet-provisioned guests.
  */
 async function becomeDemoAdmin(page: Page): Promise<boolean> {
-  for (let attempt = 0; attempt < 8; attempt++) {
-    const ok = await page.evaluate(async () => {
-      const qa = (window as unknown as Record<string, unknown>).__IITAMS_DEV_QA__ as
-        | { becomeDemoAdmin(): Promise<unknown> }
-        | undefined;
-      if (!qa) return false;
-      try {
-        await qa.becomeDemoAdmin();
-        return true;
-      } catch {
-        return false;
-      }
-    });
-    if (ok) return true;
-    await page.waitForTimeout(1000);
-  }
-  return false;
+  return await grantDemoTestRole(page, "admin");
 }
 
 describe("IITAMS Phase 3A administration", () => {
@@ -261,9 +252,9 @@ describe("IITAMS Phase 3A administration", () => {
       expect(
         await visible(page, page.getByRole("heading", { name: "Audit Logs" }), 20000),
       ).toBe(true);
-      // The escalation itself must be visible in the log.
+      // The trusted-runner grant itself must be visible in the log.
       expect(
-        await visible(page, page.getByText("user.demo_role_upgraded").first(), 15000),
+        await visible(page, page.getByText("user.demo_role_granted").first(), 15000),
       ).toBe(true);
 
       expect(errors, `page errors: ${errors.join(" | ")}`).toHaveLength(0);

@@ -1,13 +1,15 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { chromium, type Page, type Browser } from "playwright-core";
+import { grantDemoTestRole, revokeAllEscalatedGuests } from "./e2e-harness";
 
 /**
  * IITAMS Phase 3A Batch 2A browser suite — membership lifecycle (e2e).
  * =====================================================================
  * Two independent sessions against the demo deployment:
  *
- *  1. Session A signs in as guest and escalates to demo platform admin via
- *     the dev-only QA bridge (same refusal chain as Batch 1).
+ *  1. Session A signs in as an ordinary guest; the trusted test runner grants
+ *     the demo platform-admin TEST role via the token-guarded server-side
+ *     harness (never through the browser; revoked on teardown).
  *  2. Session B signs in as a plain guest — a real MEMBER of the demo
  *     organization (provisioned through the audited joinDemo path).
  *
@@ -64,6 +66,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await browser?.close();
+await revokeAllEscalatedGuests();
 });
 
 function requireEnv(): void {
@@ -136,24 +139,13 @@ async function signInAsGuest(
   return { ok: true };
 }
 
+/**
+ * Trusted-runner grant of the demo platform-admin TEST role to the current
+ * guest session (see tests/e2e-harness.ts — the tester token never enters
+ * the browser).
+ */
 async function becomeDemoAdmin(page: Page): Promise<boolean> {
-  for (let attempt = 0; attempt < 8; attempt++) {
-    const ok = await page.evaluate(async () => {
-      const qa = (window as unknown as Record<string, unknown>).__IITAMS_DEV_QA__ as
-        | { becomeDemoAdmin(): Promise<unknown> }
-        | undefined;
-      if (!qa) return false;
-      try {
-        await qa.becomeDemoAdmin();
-        return true;
-      } catch {
-        return false;
-      }
-    });
-    if (ok) return true;
-    await page.waitForTimeout(1000);
-  }
-  return false;
+  return await grantDemoTestRole(page, "admin");
 }
 
 describe("IITAMS Phase 3A Batch 2A — membership lifecycle", () => {
@@ -309,8 +301,8 @@ describe("IITAMS Phase 3A Batch 2A — membership lifecycle", () => {
         .waitFor({ state: "visible", timeout: 20000 });
 
       // Isolate this session's OWN row: the platform-admin role plus a
-      // "seconds ago" last-seen — requestDemoAdminUpgrade patches the
-      // caller lastSeenAt, so only this session's row is seconds old while
+      // "seconds ago" last-seen — the trusted-runner grant patches the
+      // target's lastSeenAt, so only this session's row is seconds old while
       // historical test profiles show minutes/days.
       const adminRow = a.page
         .locator("tbody tr")

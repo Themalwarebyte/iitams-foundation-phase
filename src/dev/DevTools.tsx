@@ -69,31 +69,31 @@ function RouteSyncer() {
 
 /**
  * DEV-ONLY QA bridge for automated browser tests. Exposes a minimal hook
- * (window.__IITAMS_DEV_QA__) that escalates the current GUEST session to the
- * demo audit-manager tier via the demo-gated mutation, so permission-gated
- * audit workflows can be exercised end-to-end. This module is never part of
- * a production bundle (import.meta.env.DEV-gated import in main.tsx), and
- * the underlying mutation refuses every non-guest/non-demo caller.
+ * (window.__IITAMS_DEV_QA__) with session inspection and authorization
+ * PROBES only — it deliberately contains NO privilege-escalation helpers.
+ * Role elevation for permission-gated e2e journeys is performed by the
+ * TRUSTED TEST RUNNER via the token-guarded server-side harness
+ * (src/convex/http.ts: POST /api/dev-grant-demo-role) after the runner reads
+ * the guest's own userId through whoAmI(); the tester secret never enters
+ * the browser. This module is never part of a production bundle
+ * (import.meta.env.DEV-gated import in main.tsx).
  */
 function DevQaBridge() {
   const client = useConvex();
   useEffect(() => {
     (window as unknown as Record<string, unknown>).__IITAMS_DEV_QA__ = {
-      async upgradeDemoRole() {
-        return await client.mutation(api.session.requestDemoRoleUpgrade, {});
-      },
-      async becomeDemoAdmin() {
-        return await client.mutation(api.session.requestDemoAdminUpgrade, {});
-      },
       async whoAmI() {
         return await client.query(api.session.getSession, {});
       },
-      // NOTE (Batch 2B hardening): NO OTP or test-identity helpers here.
-      // The bridge deliberately exposes no function that can read any user's
-      // verification code or mint verified identities — both live behind the
-      // trusted, token-guarded server-side test harness (src/convex/http.ts:
-      // POST /api/dev-otp, POST /api/dev-seed-test-user) and are invoked
-      // directly by the trusted test runner, never through the browser.
+      // NOTE (Batch 2B hardening + demo-escalation hardening): NO OTP,
+      // test-identity or privilege-escalation helpers here. The bridge
+      // deliberately exposes no function that can read any user's
+      // verification code, mint verified identities, or elevate the guest's
+      // own role — all three live behind the trusted, token-guarded
+      // server-side test harness (src/convex/http.ts: POST /api/dev-otp,
+      // POST /api/dev-seed-test-user, POST /api/dev-grant-demo-role) and are
+      // invoked directly by the trusted test runner, never through the
+      // browser.
       //
       /**
        * DEV-ONLY authorization probe: attempts an admin.view–guarded query

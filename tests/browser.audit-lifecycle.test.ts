@@ -1,13 +1,15 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { chromium, type Page, type Browser } from "playwright-core";
+import { grantDemoTestRole, revokeAllEscalatedGuests } from "./e2e-harness";
 
 /**
  * IITAMS Phase 2 browser lifecycle suite (strict gates, same contract as the
  * Phase-1 smoke suite). Strict when invoked via `bun run test:e2e:lifecycle`
  * or IITAMS_E2E_STRICT=1; soft skips only with IITAMS_E2E_SOFT=1.
  *
- * Journey: guest sign-in → role escalation (demo-gated dev QA bridge) →
- * audit universe page → create item → plans page → create plan → engagement
+ * Journey: ordinary guest sign-in → TRUSTED-RUNNER demo role grant via the
+ * token-guarded server-side harness (the browser never escalates; revoked
+ * on teardown) → audit universe page → create item → plans page → create plan → engagement
  * creation → reports page. Every created artefact must appear in the UI and
  * the whole journey must complete without a single page error.
  */
@@ -49,6 +51,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await browser?.close();
+await revokeAllEscalatedGuests();
 });
 
 function requireEnv(): void {
@@ -111,20 +114,13 @@ async function signInAsGuest(
   }
 }
 
-/** Escalate the guest to the demo audit-manager tier (dev-only bridge). */
+/**
+ * Trusted-runner grant of the demo audit-manager TEST role to the current
+ * guest session (see tests/e2e-harness.ts — the tester token never enters
+ * the browser).
+ */
 async function upgradeDemoRole(page: Page): Promise<boolean> {
-  return await page.evaluate(async () => {
-    const qa = (window as unknown as Record<string, unknown>).__IITAMS_DEV_QA__ as
-      | { upgradeDemoRole(): Promise<unknown> }
-      | undefined;
-    if (!qa) return false;
-    try {
-      await qa.upgradeDemoRole();
-      return true;
-    } catch {
-      return false;
-    }
-  });
+  return await grantDemoTestRole(page, "audit_manager");
 }
 
 describe("IITAMS Phase 2 audit lifecycle (browser)", () => {

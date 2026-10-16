@@ -313,6 +313,15 @@ const schema = defineSchema(
       // Deliberate permission overrides (grants), separate from role
       // assignment. Evaluated explicitly where a feature requires it.
       permissionOverrides: v.optional(v.array(v.string())),
+      // Trusted-test-harness demo role grants (demo-escalation hardening).
+      // Set ONLY by the internal, token-guarded harness mutations for
+      // anonymous users with an established IITAMS-DEMO membership; the
+      // elevated role stored in `role` is considered EXPIRED by
+      // resolveAccess (src/convex/access.ts) once this deadline passes, so
+      // revoked-or-abandoned test privileges never authorize protected
+      // operations even without a cleanup sweep.
+      demoRoleExpiresAt: v.optional(v.number()),
+      demoRoleGrantedAt: v.optional(v.number()),
       lastSeenAt: v.optional(v.number()),
     })
       .index("userId", ["userId"])
