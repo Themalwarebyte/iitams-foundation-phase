@@ -68,6 +68,11 @@ const STATUS_CHIP: Record<string, string> = {
   closed: "bg-muted text-muted-foreground border-border",
   cancelled: "bg-muted text-muted-foreground border-border",
   deferred: "bg-muted text-muted-foreground border-border",
+  // invitation lifecycle (Phase 3A — Batch 2C)
+  pending_delivery: "bg-info/10 text-info border-info/25",
+  pending: "bg-warning/15 text-foreground/90 border-warning/40",
+  revoked: "bg-critical/10 text-critical border-critical/25",
+  expired: "bg-critical/10 text-critical border-critical/25",
 };
 
 /** Human label for snake_case status values. */

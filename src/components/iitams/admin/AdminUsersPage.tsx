@@ -1,7 +1,10 @@
 import { useMemo, useState } from "react";
 import {
+  Ban,
+  MailPlus,
   PauseCircle,
   PlayCircle,
+  RefreshCw,
   UserMinus,
   UserPlus,
   Users,
@@ -50,7 +53,10 @@ import { StatusChip, statusLabel } from "@/components/iitams/badges";
 import { formatRelative } from "@/lib/format";
 import {
   INITIAL_ROLE_LABELS,
+  INVITATION_STATUS_LABELS,
+  isValidInvitationEmail,
   MEMBERSHIP_STATUS_LABELS,
+  type InvitationStatus,
   type MembershipStatus,
   type ProvisionableInitialRole,
 } from "@/lib/membership";
@@ -264,14 +270,387 @@ function AddExistingUserDialog({
 }
 
 /**
+ * Batch 2C — "Invite User" form dialog.
+ * Sends a VERIFIED-EMAIL invitation to a user who has NOT yet joined the
+ * organization (they may still need to register). The invitation never
+ * grants anything by itself: the recipient must verify email ownership via
+ * the existing email-OTP authentication. Delivery state is reported
+ * truthfully — when no email provider is configured the toast and the
+ * invitation table say so (no false "sent" success).
+ */
+function InviteUserDialog({
+  disabled,
+}: {
+  disabled: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<ProvisionableInitialRole | "">("");
+  const [jobTitle, setJobTitle] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [touched, setTouched] = useState(false);
+  const createInvite = useMutation(api.invitations.createInvitation);
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const emailValid = isValidInvitationEmail(email);
+  const emailError = touched && normalizedEmail !== "" && !emailValid
+    ? "Enter a complete email address, e.g. name@agency.go.ke."
+    : null;
+  const ready = emailValid && role !== "";
+
+  function resetFields() {
+    setEmail("");
+    setRole("");
+    setJobTitle("");
+    setConfirming(false);
+    setTouched(false);
+  }
+
+  async function submit() {
+    if (!ready || submitting) return;
+    setSubmitting(true);
+    try {
+      await createInvite({
+        email: normalizedEmail,
+        role: role as ProvisionableInitialRole,
+        ...(jobTitle.trim() ? { jobTitle: jobTitle.trim() } : {}),
+      });
+      toast.success(
+        `Invitation created for ${normalizedEmail} (${INITIAL_ROLE_LABELS[role as ProvisionableInitialRole]}). The recipient must verify their email to accept.`,
+      );
+      setOpen(false);
+      resetFields();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "The invitation was refused.",
+      );
+    } finally {
+      setSubmitting(false);
+      setConfirming(false);
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) resetFields();
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" disabled={disabled}>
+          <MailPlus className="size-4" aria-hidden />
+          Invite User
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Invite a new user</DialogTitle>
+          <DialogDescription>
+            Invites someone who has not joined your organization yet. They must
+            verify their email with a sign-in code before receiving their
+            membership and initial role — the link alone never grants access.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-1">
+          <div className="space-y-1.5">
+            <Label htmlFor="invite-email">Invitee email</Label>
+            <Input
+              id="invite-email"
+              type="email"
+              autoComplete="off"
+              placeholder="name@agency.go.ke"
+              value={email}
+              aria-invalid={emailError ? true : undefined}
+              aria-describedby={emailError ? "invite-email-error" : undefined}
+              onChange={(e) => setEmail(e.target.value)}
+              onBlur={() => setTouched(true)}
+            />
+            {emailError && (
+              <p id="invite-email-error" className="text-xs text-critical">
+                {emailError}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="invite-role">Initial organization role</Label>
+            <Select
+              value={role}
+              onValueChange={(v) => setRole(v as ProvisionableInitialRole)}
+            >
+              <SelectTrigger id="invite-role" aria-required="true">
+                <SelectValue placeholder="Select an initial role…" />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(INITIAL_ROLE_LABELS) as ProvisionableInitialRole[]).map(
+                  (r) => (
+                    <SelectItem key={r} value={r}>
+                      {INITIAL_ROLE_LABELS[r]}
+                    </SelectItem>
+                  ),
+                )}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Select from the approved initial roles. Creating another
+              administrator is a separately controlled workflow and is never
+              part of invitations.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="invite-title">Job title (optional)</Label>
+            <Input
+              id="invite-title"
+              value={jobTitle}
+              placeholder="e.g. Assurance Officer"
+              onChange={(e) => setJobTitle(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={() => setOpen(false)} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button disabled={!ready || submitting} onClick={() => setConfirming(true)}>
+            {submitting ? "Sending…" : "Review invitation"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+
+      {/* Explicit confirmation before any write, mirroring provisioning. */}
+      <AlertDialog open={confirming} onOpenChange={setConfirming}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm invitation</AlertDialogTitle>
+            <AlertDialogDescription>
+              Send an organization invitation to{" "}
+              <strong className="text-foreground">{normalizedEmail}</strong> with initial role{" "}
+              <strong className="text-foreground">
+                {role ? INITIAL_ROLE_LABELS[role] : ""}
+              </strong>
+              {jobTitle.trim() ? (<> as “{jobTitle.trim()}”</>) : null}
+              . The recipient must verify their email address to activate the
+              membership. The action is server-validated and recorded in the
+              audit log.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={submitting}>Back</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void submit()} disabled={submitting}>
+              {submitting ? "Sending…" : "Send invitation"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Dialog>
+  );
+}
+
+interface InvitationRow {
+  _id: string;
+  email: string;
+  role: string;
+  jobTitle: string | null;
+  status: InvitationStatus;
+  createdAt: number;
+  expiresAt: number;
+  deliveryStatus: string;
+  deliveryConfirmedAt: number | null;
+  deliveryError: string | null;
+  deliveryAttempts: number;
+  revokedAt: number | null;
+  acceptedAt: number | null;
+}
+
+/**
+ * Batch 2C — organization-scoped invitation management table.
+ * Shows this organization's invitations ONLY (server-side scoping), the
+ * truthful delivery state, and the authorized actions (revoke/resend) for
+ * callers holding `admin.manage`. No secrets, hashes or links are ever
+ * rendered here — the acceptance link exists only in the recipient's email.
+ */
+function InvitationsPanel({ canManage }: { canManage: boolean }) {
+  const invites = useQuery(api.invitations.listInvitations, {}) as
+    | InvitationRow[]
+    | undefined;
+  const revoke = useMutation(api.invitations.revokeInvitation);
+  const resend = useMutation(api.invitations.resendInvitation);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+
+  async function mutate(
+    row: InvitationRow,
+    action: "revoke" | "resend",
+  ) {
+    setPendingId(row._id);
+    try {
+      if (action === "revoke") {
+        await revoke({ invitationId: row._id as never });
+        toast.success(`Invitation for ${row.email} revoked — the link no longer works.`);
+      } else {
+        await resend({ invitationId: row._id as never });
+        toast.success(
+          `A fresh invitation link was issued for ${row.email} — all previous links are now invalid.`,
+        );
+      }
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : `Invitation ${action} was refused.`,
+      );
+    } finally {
+      setPendingId(null);
+    }
+  }
+
+  const inviteColumns: Column<InvitationRow>[] = useMemo(
+    () => [
+      {
+        header: "Invited",
+        render: (r) => (
+          <div className="min-w-0">
+            <p className="truncate font-medium">{r.email}</p>
+            {r.jobTitle && (
+              <p className="truncate text-xs text-muted-foreground">{r.jobTitle}</p>
+            )}
+          </div>
+        ),
+      },
+      {
+        header: "Role",
+        render: (r) => <span className="text-sm">{INITIAL_ROLE_LABELS[r.role as ProvisionableInitialRole] ?? r.role}</span>,
+      },
+      {
+        header: "Status",
+        render: (r) => (
+          <div className="flex flex-col items-start gap-1">
+            <StatusChip status={r.status} />
+            <span className="text-[11px] text-muted-foreground">
+              {INVITATION_STATUS_LABELS[r.status]}
+            </span>
+          </div>
+        ),
+      },
+      {
+        header: "Delivery",
+        render: (r) => {
+          if (r.status === "accepted") {
+            return <span className="text-xs text-muted-foreground">Accepted {r.acceptedAt ? formatRelative(r.acceptedAt) : ""}</span>;
+          }
+          const label =
+            r.deliveryStatus === "sent"
+              ? `Sent ${r.deliveryConfirmedAt ? formatRelative(r.deliveryConfirmedAt) : ""}`
+              : r.deliveryStatus === "failed"
+                ? `Not sent${r.deliveryError ? ` — ${r.deliveryError}` : ""}`
+                : r.deliveryStatus === "sending"
+                  ? "Sending…"
+                  : r.deliveryStatus === "not_yet"
+                    ? "Not sent yet"
+                    : r.deliveryStatus;
+          return (
+            <span className="text-xs text-muted-foreground">
+              {label}
+              {r.deliveryError && r.deliveryStatus === "failed" && (
+                <span className="mt-0.5 block text-[11px] text-critical">{r.deliveryError}</span>
+              )}
+            </span>
+          );
+        },
+      },
+      {
+        header: "Created",
+        render: (r) => (
+          <span className="text-xs tabular-nums text-muted-foreground">{formatRelative(r.createdAt)}</span>
+        ),
+      },
+      {
+        header: "Expires",
+        render: (r) => (
+          <span className="text-xs tabular-nums text-muted-foreground">{formatRelative(r.expiresAt)}</span>
+        ),
+      },
+      ...(canManage
+        ? [
+            {
+              header: "Manage",
+              render: (r: InvitationRow) => {
+                const busy = pendingId === r._id;
+                if (r.status === "pending" || r.status === "pending_delivery" || r.status === "delivery_failed") {
+                  return (
+                    <div className="flex items-center gap-1.5">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busy}
+                        title="Issue a fresh link; the previous link stops working (server-enforced, audited)"
+                        onClick={() => void mutate(r, "resend")}
+                      >
+                        <RefreshCw className="size-3.5" aria-hidden />
+                        Resend
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busy}
+                        title="Revoke this pending invitation (server-enforced, audited)"
+                        onClick={() => void mutate(r, "revoke")}
+                      >
+                        <Ban className="size-3.5" aria-hidden />
+                        Revoke
+                      </Button>
+                    </div>
+                  );
+                }
+                return null;
+              },
+            } satisfies Column<InvitationRow>,
+          ]
+        : []),
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [canManage, pendingId],
+  );
+
+  if (invites === undefined) return null;
+
+  return (
+    <section className="mt-10">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Invitations</h2>
+          <p className="text-sm text-muted-foreground">
+            Pending and completed invitations for this organization. The
+            recipient activates membership only after verifying their email —
+            delivery failures never claim a sent email.
+          </p>
+        </div>
+        <InviteUserDialog disabled={!canManage} />
+      </div>
+      {invites.length === 0 ? (
+        <EmptyState
+          icon={MailPlus}
+          title="No invitations yet"
+          description="Invite a user who has not joined your organization yet — they verify their email with a sign-in code and their membership is created automatically."
+        />
+      ) : (
+        <DataTable columns={inviteColumns} rows={invites} rowKey={(r) => r._id} />
+      )}
+    </section>
+  );
+}
+
+/**
  * User directory (Phase 3A — Batch 2A + 2B).
  * Displays name, email, organization membership, role and the real
  * organization-membership lifecycle status for every provisioned profile in
  * the caller's organization. Administrators holding `admin.manage` may
  * suspend, deactivate and reactivate memberships, and provision existing
  * verified users with an initial role; every control is server-enforced
- * and audited. Role changes after provisioning and invitations remain out
- * of scope.
+ * and audited. Role changes after provisioning remain out of scope.
  */
 export function AdminUsersPage() {
   const [search, setSearch] = useState("");
@@ -500,6 +879,9 @@ export function AdminUsersPage() {
       ) : (
         <DataTable columns={columns} rows={filtered} rowKey={(r) => r._id} />
       )}
+
+      {/* Batch 2C — organization-scoped invitation management (this org only). */}
+      <InvitationsPanel canManage={canManage} />
     </AdminPageShell>
   );
 }

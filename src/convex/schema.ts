@@ -1,6 +1,7 @@
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { Infer, v } from "convex/values";
+import { PROVISIONABLE_INITIAL_ROLES } from "../lib/membership";
 
 // ============================================================================
 // IDENTITY & ACCESS — roles (RBAC)
@@ -777,6 +778,84 @@ const schema = defineSchema(
       expirationTime: v.number(),
       createdAt: v.number(),
     }).index("by_email", ["email"]),
+
+    // ------------------------------------------------------------------
+    // ORGANIZATION INVITATIONS (Phase 3A — Batch 2C)
+    // ------------------------------------------------------------------
+    // Secure, organization-scoped invitations for users who have not yet
+    // joined the host organization. Security properties (see
+    // src/convex/invitations.ts for the enforcement):
+    //  - the invitation secret is generated client-agnostic, single-use and
+    //    hashed; only the SHA-256 HEX HASH is stored, never the plaintext;
+    //  - a token is NOT authentication: acceptance additionally requires a
+    //    real, email-verified Convex Auth identity whose verified email
+    //    matches the invited address exactly;
+    //  - acceptance writes the membership and terminal invitation state in
+    //    ONE transaction (no partial states, no replay);
+    //  - the invited email is canonically normalized (lower-case trimmed)
+    //    matching Convex Auth identifier storage.
+    organizationInvitations: defineTable({
+      organizationId: v.id("organizations"),
+      // Canonical (lower-case, trimmed) invitee email.
+      email: v.string(),
+      // Initial role assigned upon acceptance — restricted to
+      // PROVISIONABLE_INITIAL_ROLES (the privileged `admin` role is
+      // structurally impossible here; see invitations.ts validation).
+      role: v.union(
+        ...PROVISIONABLE_INITIAL_ROLES.map((r) => v.literal(r)),
+      ),
+      jobTitle: v.optional(v.string()),
+      // Lifecycle: pending_delivery → pending → accepted; alternative
+      // transitions: pending → revoked, pending → expired,
+      // pending_delivery → delivery_failed (reissueable).
+      status: v.union(
+        v.literal("pending_delivery"),
+        v.literal("pending"),
+        v.literal("delivery_failed"),
+        v.literal("accepted"),
+        v.literal("revoked"),
+        v.literal("expired"),
+      ),
+      // SHA-256 hex hash of the CURRENT acceptance secret (re-armed on send
+      // and resend; the previous hash is never reused for a second secret —
+      // a resend issues a NEW secret and overwrites the hash, so token
+      // replay across sends is impossible).
+      secretHash: v.optional(v.string()),
+      // One-time acceptance flag: set at acceptance time together with all
+      // other terminal-acceptance fields in the same transaction.
+      acceptedAt: v.optional(v.number()),
+      acceptedUserId: v.optional(v.id("users")),
+      acceptedProfileId: v.optional(v.id("userProfiles")),
+      // Administrative lifecycle.
+      createdBy: v.id("users"), // inviting administrator
+      revokedAt: v.optional(v.number()),
+      revokedBy: v.optional(v.id("users")),
+      // Expiry is evaluated server-side (never only client-side).
+      createdAt: v.number(),
+      expiresAt: v.number(),
+      // Latest delivery attempt bookkeeping (safe metadata only — never the
+      // secret, never OTP codes, never provider credentials).
+      deliveryStatus: v.union(
+        v.literal("not_yet"),
+        v.literal("sending"),
+        v.literal("sent"),
+        v.literal("failed"),
+        v.literal("skipped"),
+      ),
+      deliveryLastAttemptAt: v.optional(v.number()),
+      deliveryConfirmedAt: v.optional(v.number()),
+      deliveryAttempts: v.optional(v.number()),
+      deliveryError: v.optional(v.string()),
+    })
+      // Duplicate prevention: at most ONE actionable invitation per
+      // (organization, email) — see the atomic checks in invitations.ts.
+      .index("by_organization_email", ["organizationId", "email"])
+      // Expiry sweep / org-scoped listing support.
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_status", ["organizationId", "status"])
+      // Lookup by stored hash for token acceptance (keeps the acceptance path
+      // hash-driven — a guessed plaintext never enumerates invitations).
+      .index("by_secret_hash", ["secretHash"]),
 
     // ------------------------------------------------------------------
     // AUDIT LOGGING — immutable trail of significant actions

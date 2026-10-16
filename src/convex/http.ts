@@ -277,4 +277,88 @@ http.route({
   }),
 });
 
+/**
+ * POST /api/dev-invite-acceptance-link { invitationId } — trusted test
+ * harness (Batch 2C): re-issue the acceptance secret of a pending test
+ * invitation and return the full browser acceptance link. This is the ONLY
+ * non-production path that exposes an invitation secret: it is dev-gated
+ * AND token-guarded (same isTrustedDevTester model), and the secret is
+ * never handed to ordinary browser sessions or the app bundle. Re-issuing
+ * invalidates the previous token exactly like an administrative resend.
+ */
+http.route({
+  path: "/api/dev-invite-acceptance-link",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (!isTrustedDevTester(request)) return jsonError(403);
+    let args: { invitationId?: unknown };
+    try {
+      args = (await request.json()) as typeof args;
+    } catch {
+      return jsonError(403); // malformed body from an unauthorized caller: uniform refusal
+    }
+    if (typeof args.invitationId !== "string" || args.invitationId.length === 0) {
+      return jsonError(403);
+    }
+    const run = await ctx
+      .runMutation(internal.invitations.harnessReissueInvitation, {
+        invitationId: args.invitationId as never,
+      })
+      .then(
+        (result) => new Response(JSON.stringify(result), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .catch((err: unknown) =>
+        new Response(JSON.stringify({ error: (err as Error).message.slice(0, 200) }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    return run;
+  }),
+});
+
+/**
+ * POST /api/dev-expire-invitations { organizationId? } — trusted test
+ * harness: persist due invitation expiry (pending → expired) for the whole
+ * deployment or one organization, mirroring the production lifecycle sweep.
+ */
+http.route({
+  path: "/api/dev-expire-invitations",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (!isTrustedDevTester(request)) return jsonError(403);
+    let body: unknown = {};
+    try {
+      body = await request.json();
+    } catch {
+      body = {}; // treat like an empty sweep request
+    }
+    const organizationId =
+      (body as { organizationId?: unknown }).organizationId;
+    const run = await ctx
+      .runMutation(
+        internal.invitations.harnessExpireInvitations,
+        organizationId === undefined || typeof organizationId !== "string"
+          ? {}
+          : { organizationId: organizationId as never },
+      )
+      .then(
+        (result) => new Response(JSON.stringify(result), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .catch((err: unknown) =>
+        new Response(JSON.stringify({ error: (err as Error).message.slice(0, 200) }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    return run;
+  }),
+});
+
 export default http;

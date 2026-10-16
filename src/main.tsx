@@ -27,6 +27,12 @@ const AuthPage = lazy(() => import("./pages/Auth.tsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
 const ModulePage = lazy(() => import("./pages/ModulePage.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
+// Batch 2C — verified invitation acceptance (public route).
+const InviteAcceptPage = lazy(() =>
+  import("./pages/InviteAccept").then((m) => ({
+    default: m.InviteAcceptPage,
+  })),
+);
 // Phase 2 audit pages (named exports mapped to default for lazy())
 const UniversePage = lazy(() =>
   import("./components/iitams/audit/UniversePage").then((m) => ({
@@ -236,6 +242,9 @@ createRoot(document.getElementById("root")!).render(
           <Suspense fallback={<RouteLoading />}>
             <Routes>
               <Route path="/" element={<Landing />} />
+              {/* Batch 2C — verified invitation acceptance (public: the recipient
+                  may not have an account yet; the server validates everything). */}
+              <Route path="/invite/accept" element={<InviteAcceptPage />} />
               <Route
                 path="/auth"
                 element={<AuthPage redirectAfterAuth="/dashboard" />}

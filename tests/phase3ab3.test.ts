@@ -22,6 +22,9 @@ const pageSrc = await Bun.file(
 ).text();
 const sessionSrc = await Bun.file("src/convex/session.ts").text();
 const auditAccessSrc = await Bun.file("src/convex/auditAccess.ts").text();
+// Batch 2C: the membership-write rules now live in the shared core that
+// provisionMember AND invitation acceptance both use.
+const membershipCoreSrc = await Bun.file("src/convex/membershipCore.ts").text();
 
 const mutationSrc = adminSrc.match(
   /export const provisionMember = mutation\(\{[\s\S]*?\n\}\);/,
@@ -100,34 +103,42 @@ describe("provisionMember authorization (source guards)", () => {
 
   test("anonymous and unverified identities are refused (uniform safe error)", () => {
     expect(mutationSrc).toContain("user.isAnonymous === true");
-    expect(mutationSrc).toContain("provisioningSafeRefusal()");
     // Uniform refusals: no-account/unverified/anonymous (combined),
-    // self-address, existing membership (any org/status), pre-roled profile.
+    // self-address; the two membership-conflict refusals moved into the
+    // shared membership core, invoked through conflictRefusal.
+    // Two inline uniform refusals remain in the mutation (identity-fail,
+    // self-address); the membership-conflict refusals are passed to the
+    // shared core as the conflictRefusal factory (moved verbatim in Batch 2C).
     const refusals = (mutationSrc!.match(/provisioningSafeRefusal\(\)/g) ?? []).length;
-    expect(refusals).toBe(4);
+    expect(refusals).toBe(2);
+    expect(mutationSrc).toContain("conflictRefusal: provisioningSafeRefusal");
+    // The two remaining uniform refusals live in the shared core.
+    const coreRefusals = (membershipCoreSrc.match(/conflictRefusal\(\)/g) ?? []).length;
+    expect(coreRefusals).toBe(2);
   });
 
   test("no self-provisioning and no cross-organization transfers", () => {
     expect(mutationSrc).toContain("user._id === access.user._id");
-    expect(mutationSrc).toContain("profile.organizationId");
+    // The membership-invariant check lives in the shared core (Batch 2C).
+    expect(membershipCoreSrc).toContain("profile.organizationId");
   });
 
   test("existing memberships (any status, any organization) are refused, not rewritten", () => {
-    expect(mutationSrc).toContain("if (profile.organizationId)");
+    expect(membershipCoreSrc).toContain("if (profile && profile.organizationId)");
     // Only unassigned profiles are completed; the write is a patch of
     // organizationId/role — the membership lifecycle fields are untouched, so
     // the newly provisioned membership resolves active implicitly.
-    expect(mutationSrc).toContain("profile.role !== undefined");
-    expect(mutationSrc).toMatch(/ctx\.db\.patch\(profile\._id, \{/);
-    expect(mutationSrc).not.toContain("membershipStatus");
+    expect(membershipCoreSrc).toContain("profile.role !== undefined");
+    expect(membershipCoreSrc).toMatch(/ctx\.db\.patch\(profile\._id, \{/);
+    expect(membershipCoreSrc).not.toContain("membershipStatus");
   });
 
   test("unassigned profiles complete in place — one profile per user, no duplicates", () => {
     // The insert branch only runs when no userProfiles row exists.
-    const insertBranch = mutationSrc!.match(/await ctx\.db\.insert\("userProfiles"/);
-    const profileLookup = mutationSrc!.indexOf('withIndex("userId"');
+    const insertBranch = membershipCoreSrc.match(/await ctx\.db\.insert\("userProfiles"/);
+    const profileLookup = membershipCoreSrc.indexOf('withIndex("userId"');
     expect(profileLookup).toBeLessThan(insertBranch!.index);
-    expect(mutationSrc).toContain('withIndex("userId", (q) => q.eq("userId", user._id))');
+    expect(membershipCoreSrc).toContain('withIndex("userId", (q) => q.eq("userId", input.user._id))');
   });
 
   test("the initial role is written server-side to the organization-scoped profile only", () => {

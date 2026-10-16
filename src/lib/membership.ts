@@ -116,3 +116,73 @@ export function isProvisionableInitialRole(
 export function provisioningSafeRefusal(): string {
   return "This email is not eligible for provisioning into your organization";
 }
+
+// ---------------------------------------------------------------------------
+// Phase 3A — Batch 2C: secure organization invitations and onboarding
+// ---------------------------------------------------------------------------
+
+/** Canonical normalization for invitation/acceptance email addresses.
+ * Convex Auth stores identifiers lower-cased (see admin.provisionMember) —
+ * invitations use exactly the same canonical form so the verified email
+ * must match the invited address exactly (no display-case games). */
+export function normalizeInvitationEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+/** Syntactic email validation used before any write (server re-validates). */
+export function isValidInvitationEmail(email: string): boolean {
+  const e = normalizeInvitationEmail(email);
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+}
+
+/** Invitation lifecycle states (order matters only for UX display). */
+export const INVITATION_STATUSES = [
+  "pending_delivery",
+  "pending",
+  "delivery_failed",
+  "accepted",
+  "revoked",
+  "expired",
+] as const;
+export type InvitationStatus = (typeof INVITATION_STATUSES)[number];
+
+/** Human labels for the administration tables / status chips. */
+export const INVITATION_STATUS_LABELS: Record<InvitationStatus, string> = {
+  pending_delivery: "Pending delivery",
+  pending: "Pending",
+  delivery_failed: "Delivery failed",
+  accepted: "Accepted",
+  revoked: "Revoked",
+  expired: "Expired",
+};
+
+/** Statuses from which a fresh secret may be issued (resend/reissue). */
+export function isReissueable(status: InvitationStatus): boolean {
+  return status === "pending" || status === "delivery_failed" || status === "pending_delivery";
+}
+
+/** A still-actionable invitation (the acceptance flow refuses everything else). */
+export function isAcceptableInviteStatus(
+  status: InvitationStatus,
+): boolean {
+  return status === "pending";
+}
+
+/** Default/TTL bounds for invitation validity. */
+export const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days (default)
+export const INVITATION_TTL_MAX_MS = 14 * 24 * 60 * 60 * 1000; // hard cap: 14 days
+/** Cooldown between resend/reissue operations (anti-flooding). */
+export const INVITATION_RESEND_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
+/** Max actionable invitations (pending/failed) one administrator may hold open
+ * against distinct emails per rolling window — reasonable anti-flooding cap. */
+export const MAX_ACTIVE_INVITATIONS_PER_ORG = 100;
+/** Max invitations for the same email per rolling window, including failures. */
+export const MAX_INVITATIONS_PER_EMAIL_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const MAX_INVITATIONS_PER_EMAIL_WINDOW_COUNT = 3;
+
+/** Uniform decline message for the recipient-facing acceptance flow. It
+ * deliberately does not distinguish invalid/expired/revoked/accepted tokens
+ * so a guessing adversary learns nothing from probing links. */
+export function invitationSafeRefusal(): string {
+  return "This invitation is invalid, expired or already used";
+}

@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { logAudit, requirePermission } from "./auditAccess";
+import { applyInitialMembership } from "./membershipCore";
 import { IITAMS_ROLES, permissionsForRole } from "./access";
 import {
   MEMBERSHIP_STATUS_LABELS,
@@ -506,36 +507,17 @@ export const provisionMember = mutation({
       throw new Error(provisioningSafeRefusal());
     }
 
-    const profile = await ctx.db
-      .query("userProfiles")
-      .withIndex("userId", (q) => q.eq("userId", user._id))
-      .unique();
-    if (profile) {
-      if (profile.organizationId) {
-        // Belongs to this or another organization — uniformly refused. Also
-        // covers suspended/deactivated members (provisioning is never a
-        // route around membership lifecycle restrictions).
-        throw new Error(provisioningSafeRefusal());
-      }
-      if (profile.role !== undefined) {
-        // Unassigned profile that already carries a role: non-obvious state —
-        // refuse for manual review instead of silently overwriting.
-        throw new Error(provisioningSafeRefusal());
-      }
-      // Existing unassigned profile: complete it in place (no duplicate).
-      await ctx.db.patch(profile._id, {
-        organizationId: access.organizationId,
-        role: args.initialRole,
-        ...(args.jobTitle !== undefined ? { jobTitle: args.jobTitle } : {}),
-      });
-    } else {
-      await ctx.db.insert("userProfiles", {
-        userId: user._id,
-        organizationId: access.organizationId,
-        role: args.initialRole,
-        ...(args.jobTitle !== undefined ? { jobTitle: args.jobTitle } : {}),
-      });
-    }
+    // NOTE (Batch 2C): the profile-write rules now live in ONE shared helper
+    // (src/convex/membershipCore.ts) that invitation acceptance also uses,
+    // so both paths keep identical membership invariants and refusals.
+    await applyInitialMembership(ctx, {
+      user,
+      organizationId: access.organizationId,
+      initialRole: args.initialRole,
+      ...(args.jobTitle !== undefined ? { jobTitle: args.jobTitle } : {}),
+      preserveExistingJobTitle: false,
+      conflictRefusal: provisioningSafeRefusal,
+    });
 
     const storedProfile = (await ctx.db
       .query("userProfiles")
