@@ -28,6 +28,8 @@ const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
 const ModulePage = lazy(() => import("./pages/ModulePage.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 // Batch 2C — verified invitation acceptance (public route).
+const PrivilegeRequestsPage = lazy(() =>
+  import("./pages/PrivilegeRequestsPage.tsx"));
 const InviteAcceptPage = lazy(() =>
   import("./pages/InviteAccept").then((m) => ({
     default: m.InviteAcceptPage,
@@ -245,6 +247,10 @@ createRoot(document.getElementById("root")!).render(
               {/* Batch 2C — verified invitation acceptance (public: the recipient
                   may not have an account yet; the server validates everything). */}
               <Route path="/invite/accept" element={<InviteAcceptPage />} />
+              <Route
+                path="/privilege-requests"
+                element={<PrivilegeRequestsPage />}
+              />
               <Route
                 path="/auth"
                 element={<AuthPage redirectAfterAuth="/dashboard" />}

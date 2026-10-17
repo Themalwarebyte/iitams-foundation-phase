@@ -322,12 +322,13 @@ async function provisionViaUi(
   }
   await page.getByRole("button", { name: "Confirm provisioning" }).click();
 
-  const prost = await visible(
-    page,
-    page.getByText(/provisioned with initial role Member/),
-    15000,
-  );
-  if (prost) return { provisioned: true, refused: false };
+  // Success is asserted by its durable EFFECT (the new directory row), not by
+  // a transient toast: the reactive list update is deterministic while the
+  // sonner toast can auto-dismiss between polls under load.
+  const newRow = page.locator("tbody tr").filter({ hasText: email }).first();
+  if (await visible(page, newRow, 20000)) {
+    return { provisioned: true, refused: false };
+  }
   const refst = await visible(
     page,
     page.getByText(/not eligible for provisioning into your organization/),
@@ -335,7 +336,16 @@ async function provisionViaUi(
   );
   if (refst) return { provisioned: false, refused: true };
   const toasts = await page.locator("[data-sonner-toast]").allTextContents().catch(() => []);
-  return { provisioned: false, refused: false, diag: toasts } as never;
+  const dialog = await page
+    .locator("[role=dialog]")
+    .innerText()
+    .then((t) => t.replace(/\s+/g, " ").slice(0, 300))
+    .catch(() => "<no dialog>");
+  return {
+    provisioned: false,
+    refused: false,
+    diag: [...toasts, `dialog:${dialog}`],
+  } as never;
 }
 
 describe("IITAMS Phase 3A Batch 2B — effective membership with independent sessions", () => {
@@ -395,7 +405,7 @@ describe("IITAMS Phase 3A Batch 2B — effective membership with independent ses
       }
 
       const result = await provisionViaUi(a.page, email, "Effective Membership Officer");
-      expect(result.provisioned).toBe(true);
+      expect(result.provisioned, `provision failed — refused=${result.refused} diag=${JSON.stringify(result.diag ?? [])}`).toBe(true);
 
       const adminSession = await sessionInfo(a.page);
       const adminOrgId = adminSession?.organization?.id ?? null;
@@ -478,7 +488,9 @@ describe("IITAMS Phase 3A Batch 2B — effective membership with independent ses
       // Administration: suspend the membership — B's OWN session degrades
       // ------------------------------------------------------------------
       const row = a.page.locator("tbody tr").filter({ hasText: email }).first();
-      expect(await visible(a.page, row, 10000)).toBe(true);
+      // The dev backend's write-ahead virtual clock can delay the reactive
+      // list refresh noticeably after a provisioning burst — generous wait.
+      expect(await visible(a.page, row, 20000)).toBe(true);
       await row.getByRole("button", { name: "Suspend" }).click();
       // Directory reacts to the server-enforced lifecycle change.
       // StatusChip renders "Suspended" + a sr-only " status" suffix.
@@ -493,10 +505,9 @@ describe("IITAMS Phase 3A Batch 2B — effective membership with independent ses
           `Suspend did not reflect in the directory: toasts=${JSON.stringify(toasts)} row=${(rowText ?? "").slice(0, 300)}`,
         );
       }
-      await row.getByText(/^Suspended/).waitFor({
-        state: "visible",
-        timeout: 1000,
-      });
+      // (chipVisible above already confirms the server-enforced state; the
+      // extra fast recheck was flicker-prone under background re-renders —
+      // live "last seen" churn can detach the row's text nodes.)
 
       // B's live (still signed-in) session is refused organization context:
       const suspended = await sessionInfo(b.page);
@@ -524,14 +535,16 @@ describe("IITAMS Phase 3A Batch 2B — effective membership with independent ses
       expect(dup1!.refused).toBe(true);
       const rowNow = a.page.locator("tbody tr").filter({ hasText: email }).first();
       await rowNow.getByRole("button", { name: "Reactivate" }).click();
+      // The dev backend's deterministic clock can add noticeable latency to
+      // the reactive list refresh after lifecycle writes — allow for it.
       await rowNow.getByText(/^Active/).first().waitFor({
         state: "visible",
-        timeout: 15000,
+        timeout: 30000,
       });
       await rowNow.getByRole("button", { name: "Deactivate" }).click();
       await rowNow.getByText(/^Deactivated/).waitFor({
         state: "visible",
-        timeout: 15000,
+        timeout: 30000,
       });
       const deactivated = await sessionInfo(b.page);
       expect(deactivated!.membershipStatus).toBe("deactivated");

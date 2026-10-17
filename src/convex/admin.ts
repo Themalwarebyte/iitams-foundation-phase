@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { logAudit, requirePermission } from "./auditAccess";
+import { countActiveAdministrators } from "./adminLifecycle";
 import { applyInitialMembership } from "./membershipCore";
 import { IITAMS_ROLES, permissionsForRole } from "./access";
 import {
@@ -383,27 +384,19 @@ export const setMembershipStatus = mutation({
       );
     }
 
-    // Last-active-administrator guard: suspending or deactivating an active
-    // admin must leave at least one other ACTIVE admin in the organization.
+    // Last-active-administrator guard — ONE shared server-side helper
+    // (countActiveAdministrators in adminLifecycle.ts) is used for EVERY
+    // transition that can remove the org's last effective administrator
+    // (suspend, deactivate, revoke). The count excludes admin profiles
+    // whose trusted demo-role grant has already expired, so an expired
+    // grant never qualifies as the "remaining" administrator that would
+    // let a suspension/deactivation strand the organization.
     if (
       current === "active" &&
-      (target.role ?? undefined) === "admin"
+      (target.role ?? undefined) === "admin" &&
+      (await countActiveAdministrators(ctx, access.organizationId!, target._id)) === 0
     ) {
-      const profiles = await ctx.db
-        .query("userProfiles")
-        .withIndex("by_organization", (q) =>
-          q.eq("organizationId", access.organizationId!),
-        )
-        .collect();
-      const otherActiveAdmins = profiles.filter(
-        (p) =>
-          p._id !== target._id &&
-          p.role === "admin" &&
-          effectiveMembershipStatus(p.membershipStatus) === "active",
-      );
-      if (otherActiveAdmins.length === 0) {
-        throw new Error(lastAdminGuardMessage());
-      }
+      throw new Error(lastAdminGuardMessage());
     }
 
     await ctx.db.patch(target._id, { membershipStatus: args.status });

@@ -186,7 +186,7 @@ describe("IITAMS Phase 3A Batch 2B — member provisioning", () => {
       const email = `pb2b-${Date.now()}@test.example`;
       let seeded: { ok: boolean; email: string } | null = null;
       try {
-        const res = await harnessPost("/api/dev-seed-test-user", email);
+        const res = await harnessPost("/api/dev-seed-test-user", { email });
         if (res.ok) {
           seeded = (await res.json()) as { ok: boolean; email: string };
         } else if (res.status === 403) {

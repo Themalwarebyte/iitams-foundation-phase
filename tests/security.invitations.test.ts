@@ -67,6 +67,21 @@ async function harnessGrantAdmin(userId: string): Promise<boolean> {
   return res.ok;
 }
 
+/** Harness-granted demo admin client (authorized createInvitation caller). */
+async function adminClientWithGrant(): Promise<ConvexHttpClient | null> {
+  const admin = await signInAnonymous();
+  await admin.mutation(api.session.joinDemoOrganization, {});
+  const session = (await admin.query(api.session.getSession, {})) as {
+    userId?: string;
+  } | null;
+  if (!session?.userId) return null;
+  if (!(await harnessGrantAdmin(session.userId))) return null;
+  return admin;
+}
+
+/** Monotonic-ish unique suffix for fixture emails within a runner session. */
+const uniq = () => Date.now() * 1000 + Math.floor(Math.random() * 999);
+
 /** Trusted-runner harness route: reissue the acceptance link of an invitation. */
 async function harnessInviteLink(invitationId: string): Promise<
   { ok: true; secret: string; email: string; role: string } | { ok: false }
@@ -183,10 +198,132 @@ describe("Batch 2C — invitation hashing + structural guards", () => {
 });
 
 describe("Batch 2C — deployed invitation boundary (runtime)", () => {
+  /** Test hygiene (fixture, not product): revoke leftover ACTIONABLE
+   * invitations whose recipient address belongs to THIS suite's fixture
+   * domain. Test isolation (source-review fix): `@check.example` is the
+   * RFC 2606 test domain the entire suite uses for every fixture address —
+   * so the drain can never name/flip an invitation for a real recipient in
+   * the shared organization; legitimate invitations (real addresses) are
+   * structurally out of scope. Terminal rows are never touched. */
+  const FIXTURE_EMAIL_DOMAIN = "@check.example";
+  async function drainPendingInvitations(admin: ConvexHttpClient): Promise<number> {
+    const rows = (await admin.query(api.invitations.listInvitations, {})) as
+      | Array<{ _id: string; email?: string; status?: string }>
+      | null;
+    let drained = 0;
+    for (const row of rows ?? []) {
+      const isFixture =
+        typeof row.email === "string" &&
+        row.email.toLowerCase().endsWith(FIXTURE_EMAIL_DOMAIN);
+      if (
+        isFixture &&
+        (row.status === "pending" ||
+          row.status === "pending_delivery" ||
+          row.status === "delivery_failed")
+      ) {
+        try {
+          await admin.mutation(api.invitations.revokeInvitation, {
+            invitationId: row._id as never,
+          });
+          drained += 1;
+        } catch {
+          // A row can go terminal concurrently; hygiene is best-effort.
+        }
+      }
+    }
+    return drained;
+  }
+
+  test("test hygiene: drains ONLY fixture-domain invitations, never real ones", async () => {
+    if (!(await serverUp()) || !harnessConfigured) {
+      throw new Error("[test:PREREQ-FAILED] backend/harness unavailable");
+    }
+    const admin = await signInAnonymous();
+    await admin.mutation(api.session.joinDemoOrganization, {});
+    const session = (await admin.query(api.session.getSession, {})) as {
+      userId?: string;
+    } | null;
+    if (!session?.userId || !(await harnessGrantAdmin(session.userId))) {
+      throw new Error("[test:PREREQ-FAILED] trusted-runner admin grant unavailable");
+    }
+    const drained = await drainPendingInvitations(admin);
+    if (drained > 0) {
+      console.warn(`[test:HYGIENE] revoked ${drained} leftover open fixture invitation(s)`);
+    }
+  }, 60000);
+
+  test("cleanup isolation: a non-fixture invitation is never touched by the drain", async () => {
+    if (!(await serverUp()) || !harnessConfigured) {
+      throw new Error("[test:PREREQ-FAILED] backend/harness unavailable");
+    }
+    const admin = await adminClientWithGrant();
+    if (!admin) {
+      throw new Error("[test:PREREQ-FAILED] trusted-runner admin grant unavailable");
+    }
+    const suffix = uniq();
+    // A REAL-looking address outside the suite's fixture domain: the drain
+    // routine must not touch it even though it is open and actionable.
+    const keptEmail = `kept-real-${suffix}@partner-portal.example`;
+    const kept = (await admin.mutation(api.invitations.createInvitation, {
+      email: keptEmail,
+      role: "auditor",
+    })) as { ok?: boolean; invitationId?: string };
+    expect(kept.ok).toBe(true);
+    const link = await harnessInviteLink(kept.invitationId!);
+    if (!link.ok) return;
+    const keptHash = sha256Hex(link.secret);
+    const inspectBefore = (await admin.query(api.invitations.inspectInvitation, {
+      secretHash: keptHash,
+    })) as { valid?: boolean };
+    expect(inspectBefore.valid).toBe(true);
+
+    // Run the drain — scoped to @check.example fixtures only.
+    const drained = await drainPendingInvitations(admin);
+
+    // Race-safety note: under concurrent runner files the dev backend's
+    // virtual clock advances sharply with each write, so a scheduled
+    // delivery action queued at creation time can still fire and re-mint
+    // the deliverable secret AFTER the trusted-harness mint — invalidating
+    // the previously captured hash even though the drain never touched the
+    // row. Assert on what the drain must NOT change instead: the row's
+    // non-terminal status (fresh reissue also still succeeds), re-checking
+    // actionability on the CURRENT deliverable secret.
+    const rows = (await admin.query(api.invitations.listInvitations, {})) as
+      | Array<{ email?: string; status?: string }>
+      | null;
+    const keptRows = (rows ?? []).filter((r) => r.email === keptEmail);
+    expect(keptRows).toHaveLength(1);
+    expect(keptRows[0]!.status).not.toBe("revoked");
+    expect(keptRows[0]!.status).not.toBe("expired");
+    const keptReissue = await harnessInviteLink(kept.invitationId!);
+    expect(keptReissue.ok).toBe(true);
+    if (keptReissue.ok) {
+      const keptHashNow = sha256Hex(keptReissue.secret);
+      const inspectAfter = (await admin.query(api.invitations.inspectInvitation, {
+        secretHash: keptHashNow,
+      })) as { valid?: boolean };
+      expect(inspectAfter.valid).toBe(true);
+    }
+    // And the fixture-domain rows are gone (drain report matches reality).
+    const leftoverFixtures = (rows ?? []).filter(
+      (r) =>
+        r.email?.toLowerCase().endsWith(FIXTURE_EMAIL_DOMAIN) &&
+        (r.status === "pending" || r.status === "pending_delivery" || r.status === "delivery_failed"),
+    );
+    expect(leftoverFixtures).toHaveLength(0);
+
+    // Restore: the kept invitation is revoked by ITS OWN caller — this is
+    // explicit fixture cleanup for this test only (audit history intact).
+    const revoked = (await admin.mutation(api.invitations.revokeInvitation, {
+      invitationId: kept.invitationId! as never,
+    })) as { ok?: boolean };
+    expect(revoked.ok).toBe(true);
+    expect(drained).toBeGreaterThanOrEqual(0);
+  }, 120000);
+
   test("administrator without admin.manage cannot create invitations (real guest session)", async () => {
     if (!(await serverUp())) {
-      console.warn("[test:SKIPPED] convex backend unreachable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] convex backend unreachable");
     }
     const guest = await signInAnonymous();
     await guest.mutation(api.session.joinDemoOrganization, {});
@@ -202,8 +339,7 @@ describe("Batch 2C — deployed invitation boundary (runtime)", () => {
 
   test("unauthenticated callers cannot accept a REAL invitation hash", async () => {
     if (!(await serverUp()) || !harnessConfigured) {
-      console.warn("[test:SKIPPED] backend/harness unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] backend/harness unavailable");
     }
     // Setup: real authorized admin (demo-escalated guest) creates an invite.
     const adminGuest = await signInAnonymous();
@@ -211,8 +347,7 @@ describe("Batch 2C — deployed invitation boundary (runtime)", () => {
     const session = (await adminGuest.query(api.session.getSession, {})) as { userId?: string } | null;
     const userId = session?.userId;
     if (!userId || !(await harnessGrantAdmin(userId))) {
-      console.warn("[test:SKIPPED] trusted-runner admin grant unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] trusted-runner admin grant unavailable");
     }
     const email = `inv-sec-${Date.now()}@check.example`;
     const created = (await adminGuest.mutation(api.invitations.createInvitation, {
@@ -223,8 +358,7 @@ describe("Batch 2C — deployed invitation boundary (runtime)", () => {
 
     const link = await harnessInviteLink(created.invitationId!);
     if (!link.ok) {
-      console.warn("[test:SKIPPED] harness link reissue unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] harness link reissue unavailable");
     }
     expect(link.email).toBe(email);
     const hash = sha256Hex(link.secret);
@@ -256,16 +390,14 @@ describe("Batch 2C — deployed invitation boundary (runtime)", () => {
 
   test("duplicate pending invitations are refused; resend invalidates the old token", async () => {
     if (!(await serverUp()) || !harnessConfigured) {
-      console.warn("[test:SKIPPED] backend/harness unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] backend/harness unavailable");
     }
     const adminGuest = await signInAnonymous();
     await adminGuest.mutation(api.session.joinDemoOrganization, {});
     const session = (await adminGuest.query(api.session.getSession, {})) as { userId?: string } | null;
     const userId = session?.userId;
     if (!userId || !(await harnessGrantAdmin(userId))) {
-      console.warn("[test:SKIPPED] trusted-runner admin grant unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] trusted-runner admin grant unavailable");
     }
     const email = `inv-dup-${Date.now()}@check.example`;
     const first = (await adminGuest.mutation(api.invitations.createInvitation, {
@@ -292,8 +424,7 @@ describe("Batch 2C — deployed invitation boundary (runtime)", () => {
     // The fresh link validates; the previous token is invalidated on resend.
     const link1 = await harnessInviteLink(first.invitationId!);
     if (!link1.ok) {
-      console.warn("[test:SKIPPED] harness link reissue unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] harness link reissue unavailable");
     }
     const hash1 = sha256Hex(link1.secret);
     const inspect1 = (await client.query(api.invitations.inspectInvitation, {
@@ -304,8 +435,7 @@ describe("Batch 2C — deployed invitation boundary (runtime)", () => {
     // Resend/reissue — old token dies, new token validates.
     const link2 = await harnessInviteLink(first.invitationId!);
     if (!link2.ok) {
-      console.warn("[test:SKIPPED] second harness reissue unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] second harness reissue unavailable");
     }
     const hash2 = sha256Hex(link2.secret);
     expect(hash2).not.toBe(hash1);
@@ -332,8 +462,7 @@ describe("Batch 2C — deployed invitation boundary (runtime)", () => {
 
   test("listing exposes no hashes or secrets (organization-scoped)", async () => {
     if (!(await serverUp()) || !harnessConfigured) {
-      console.warn("[test:SKIPPED] backend/harness unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] backend/harness unavailable");
     }
     // Unauthenticated list attempt must be refused outright.
     await expect(
@@ -419,8 +548,7 @@ describe("Batch 2C — behavioral acceptance & provisioning regression (runtime)
 
   test("trusted harness routes refuse missing/wrong tokens uniformly (live)", async () => {
     if (!(await serverUp())) {
-      console.warn("[test:SKIPPED] backend unreachable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] backend unreachable");
     }
     for (const path of ["/api/dev-invite-acceptance-link", "/api/dev-expire-invitations"]) {
       const missing = await fetch(`${HARNESS}${path}`, {
@@ -444,13 +572,11 @@ describe("Batch 2C — behavioral acceptance & provisioning regression (runtime)
 
   test("manual Add-Existing-User provisioning behaves exactly as before (shared core)", async () => {
     if (!(await serverUp()) || !harnessConfigured) {
-      console.warn("[test:SKIPPED] backend/harness unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] backend/harness unavailable");
     }
     const admin = await adminClientWithGrant();
     if (!admin) {
-      console.warn("[test:SKIPPED] admin grant unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] admin grant unavailable");
     }
     const suffix = uniq();
     const emailB = `provisionTarget-${suffix}@check.example`;
@@ -487,8 +613,7 @@ describe("Batch 2C — behavioral acceptance & provisioning regression (runtime)
 
   test("manual provisioning is refused for a member onboarded via invitation (no duplicate access)", async () => {
     if (!(await serverUp()) || !harnessConfigured) {
-      console.warn("[test:SKIPPED] backend/harness unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] backend/harness unavailable");
     }
     const admin = await adminClientWithGrant();
     if (!admin) return;
@@ -505,8 +630,7 @@ describe("Batch 2C — behavioral acceptance & provisioning regression (runtime)
     if (!link.ok) return;
     const invitee = await signInEmailOtp(email);
     if (!invitee) {
-      console.warn("[test:SKIPPED] invitee OTP sign-in unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] invitee OTP sign-in unavailable");
     }
     const accepted = (await invitee.mutation(api.invitations.acceptInvitation, {
       secretHash: sha256Hex(link.secret),
@@ -526,13 +650,11 @@ describe("Batch 2C — behavioral acceptance & provisioning regression (runtime)
 
   test("wrong-email refused; right-email acceptance succeeds exactly once (replay refused)", async () => {
     if (!(await serverUp()) || !harnessConfigured) {
-      console.warn("[test:SKIPPED] backend/harness unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] backend/harness unavailable");
     }
     const admin = await adminClientWithGrant();
     if (!admin) {
-      console.warn("[test:SKIPPED] admin grant unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] admin grant unavailable");
     }
     const suffix = uniq();
     const invitedEmail = `acceptee-${suffix}@check.example`;
@@ -546,8 +668,7 @@ describe("Batch 2C — behavioral acceptance & provisioning regression (runtime)
     expect(inv.ok).toBe(true);
     const link = await harnessInviteLink(inv.invitationId!);
     if (!link.ok) {
-      console.warn("[test:SKIPPED] harness link unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] harness link unavailable");
     }
     const hash = sha256Hex(link.secret);
 
@@ -564,8 +685,7 @@ describe("Batch 2C — behavioral acceptance & provisioning regression (runtime)
     // 2. The invited user verifies THEIR address and accepts exactly once.
     const invitee = await signInEmailOtp(invitedEmail);
     if (!invitee) {
-      console.warn("[test:SKIPPED] invitee OTP sign-in unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] invitee OTP sign-in unavailable");
     }
     const accepted = (await invitee.mutation(api.invitations.acceptInvitation, {
       secretHash: hash,
@@ -596,13 +716,11 @@ describe("Batch 2C — behavioral acceptance & provisioning regression (runtime)
 
   test("revoked invitations are refused; suspended members cannot be re-onboarded", async () => {
     if (!(await serverUp()) || !harnessConfigured) {
-      console.warn("[test:SKIPPED] backend/harness unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] backend/harness unavailable");
     }
     const admin = await adminClientWithGrant();
     if (!admin) {
-      console.warn("[test:SKIPPED] admin grant unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] admin grant unavailable");
     }
     const suffix = uniq();
     const email = `revoke-flow-${suffix}@check.example`;
@@ -648,15 +766,19 @@ describe("Batch 2C — behavioral acceptance & provisioning regression (runtime)
     const link2 = await harnessInviteLink(inv2.invitationId!);
     if (!link2.ok) return;
     const hash2 = sha256Hex(link2.secret);
+    // Fixtures only: scope the lifecycle sweep to the test's own organization.
+    const adminSession = (await admin.query(
+      api.session.getSession,
+      {},
+    )) as { organization?: { id?: string } } | null;
     const sweep = await fetch(`${HARNESS}/api/dev-expire-invitations`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-iitams-tester-token": token,
-      },
-      body: JSON.stringify({}),
-    });
-    expect(sweep.status).toBe(200);
+      },        body: JSON.stringify({ organizationId: adminSession?.organization?.id }),
+      });
+      expect(sweep.status).toBe(200);
     const anonymous2 = await signInAnonymous();
     await expect(
       anonymous2
@@ -667,8 +789,7 @@ describe("Batch 2C — behavioral acceptance & provisioning regression (runtime)
 
   test("concurrent duplicate acceptance creates exactly one membership", async () => {
     if (!(await serverUp()) || !harnessConfigured) {
-      console.warn("[test:SKIPPED] backend/harness unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] backend/harness unavailable");
     }
     const admin = await adminClientWithGrant();
     if (!admin) return;
@@ -684,8 +805,7 @@ describe("Batch 2C — behavioral acceptance & provisioning regression (runtime)
     const hash = sha256Hex(link.secret);
     const invitee = await signInEmailOtp(email);
     if (!invitee) {
-      console.warn("[test:SKIPPED] invitee OTP sign-in unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] invitee OTP sign-in unavailable");
     }
 
     // Two simultaneous acceptances: Convex serializes mutations, so exactly
@@ -712,4 +832,167 @@ describe("Batch 2C — behavioral acceptance & provisioning regression (runtime)
     expect(sess?.isProvisioned).toBe(true);
     expect(sess?.role).toBe("member");
   }, 120000);
+
+  type InviteRow = {
+    _id: string;
+    deliveryAttempts: number;
+    deliveryStatus: string | null;
+  };
+
+  /** Trusted-harness redelivery: synchronously replay the delivery action
+   * with an explicit generation anchor (the exact shape of an out-of-order
+   * scheduled delivery). Called only when the backend is up. */
+  async function devRedeliver(
+    invitationId: string,
+    expectedSecretHash?: string,
+  ): Promise<Response> {
+    return fetch(`${HARNESS}/api/dev-invite-redeliver`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-iitams-tester-token": token,
+      },
+      body: JSON.stringify(
+        expectedSecretHash === undefined
+          ? { invitationId }
+          : { invitationId, expectedSecretHash },
+      ),
+    });
+  }
+
+  async function attemptsOf(invitationId: string): Promise<number> {
+    const admin = await adminClientWithGrant();
+    if (admin == null) return -1;
+    const rows = (await admin.query(api.invitations.listInvitations, {})) as
+      | InviteRow[]
+      | null;
+    return rows?.find((r) => r._id === invitationId)?.deliveryAttempts ?? -1;
+  }
+
+  test(
+    "stale scheduled delivery cannot supersede a newer trusted-harness reissue",
+    async () => {
+      if (!(await serverUp()) || !harnessConfigured) {
+        throw new Error("[test:PREREQ-FAILED] backend/harness unavailable");
+      }
+      const admin = await adminClientWithGrant();
+      if (!admin) return;
+      const suffix = uniq();
+      const email = `record-stale-${suffix}@check.example`;
+
+      // 1. Fresh invitation: its delivery action anchors on the unset
+      //    generation and mints as soon as it runs (no e-mail provider in
+      //    dev, so it completes with a composed token nonetheless).
+      const inv = (await admin.mutation(api.invitations.createInvitation, {
+        email,
+        role: "auditor",
+      })) as { ok?: boolean; invitationId?: string };
+      expect(inv.ok).toBe(true);
+      const invitationId = inv.invitationId!;
+
+      // Give the scheduled creation-delivery time to complete so the row
+      // enters a settled state before this test drives its own reissues.
+      const deadline = Date.now() + 30_000;
+      while (Date.now() < deadline && (await attemptsOf(invitationId)) < 1) {
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      expect(await attemptsOf(invitationId)).toBeGreaterThanOrEqual(1);
+
+      // 2. Older reissue (generation H1) — its token is real but will soon
+      //    be superseded by the newest one below.
+      const olderLink = await harnessInviteLink(invitationId);
+      expect(olderLink.ok).toBe(true);
+      const olderHash = sha256Hex(olderLink.ok ? olderLink.secret : "");
+
+      // 3. NEWEST reissue (generation H2) — this is the link a real admin
+      //    would have just sent; it MUST stay valid no matter when stale
+      //    delivery actions fire.
+      const newestLink = await harnessInviteLink(invitationId);
+      expect(newestLink.ok).toBe(true);
+      const newestHash = sha256Hex(newestLink.ok ? newestLink.secret : "");
+      const attemptsAtNewest = await attemptsOf(invitationId);
+
+      // 4. Reproduce the RACE deterministically: replay the delivery action
+      //    with the OLD generation anchor — exactly the durable argument a
+      //    scheduled action carries when a newer reissue landed after it
+      //    was queued. Without the generation guard the mint would
+      //    overwrite the newest hash and kill the fresh link.
+      const redeliver = await devRedeliver(invitationId, olderHash);
+      expect(redeliver.status).toBe(200);
+
+      // 5. Newest issued token remains valid.
+      const newestInspect = (await admin.query(api.invitations.inspectInvitation, {
+        secretHash: newestHash,
+      })) as { valid?: boolean };
+      expect(newestInspect.valid).toBe(true);
+
+      // 6. Stale generation rejected: the older reissued token does not
+      //    authenticate anything after being superseded.
+      const staleInspect = (await admin.query(api.invitations.inspectInvitation, {
+        secretHash: olderHash,
+      })) as { valid?: boolean };
+      expect(staleInspect.valid).toBe(false);
+
+      // 7. No stale write and no attempt-budget consumption: a superseded
+      //    scheduled action must not mint (no attempt increments) and must
+      //    not rewrite the row (no terminal-status revision).
+      expect(await attemptsOf(invitationId)).toBe(attemptsAtNewest);
+
+      // 8. List view still reports only safe delivery metadata.
+      const rows = (await admin.query(api.invitations.listInvitations, {})) as
+        | InviteRow[]
+        | null;
+      const row = rows?.find((r) => r._id === invitationId);
+      expect(row).toBeDefined();
+      expect(JSON.stringify(row)).not.toContain(newestHash);
+      expect(JSON.stringify(row)).not.toContain(olderHash);
+    },
+    120000,
+  );
+
+  test(
+    "fresh redelivery still mints and invalidates prior tokens (expiry/status intact)",
+    async () => {
+      if (!(await serverUp()) || !harnessConfigured) {
+        throw new Error("[test:PREREQ-FAILED] backend/harness unavailable");
+      }
+      const admin = await adminClientWithGrant();
+      if (!admin) return;
+      const suffix = uniq();
+
+      const inv = (await admin.mutation(api.invitations.createInvitation, {
+        email: `record-fresh-${suffix}@check.example`,
+        role: "auditor",
+      })) as { ok?: boolean; invitationId?: string };
+      expect(inv.ok).toBe(true);
+      const invitationId = inv.invitationId!;
+      const deadline = Date.now() + 30_000;
+      while (Date.now() < deadline && (await attemptsOf(invitationId)) < 1) {
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      const before = await attemptsOf(invitationId);
+
+      const link = await harnessInviteLink(invitationId);
+      expect(link.ok).toBe(true);
+      const hash = sha256Hex(link.ok ? link.secret : "");
+
+      // A redelivery whose anchor matches the CURRENT generation must mint
+      // a new token (the normal in-order path: attempt budget consumed by
+      // exactly one, previous token invalidated atomically).
+      const redeliver = await devRedeliver(invitationId, hash);
+      expect(redeliver.status).toBe(200);
+      const after = await attemptsOf(invitationId);
+      expect(after).toBe(before + 1);
+
+      // The prior link is dead; a fresh reissue revalidates cleanly (same
+      // reissue semantics as an administrative resend).
+      const staleAfter = (await admin.query(api.invitations.inspectInvitation, {
+        secretHash: hash,
+      })) as { valid?: boolean };
+      expect(staleAfter.valid).toBe(false);
+      const relink = await harnessInviteLink(invitationId);
+      expect(relink.ok).toBe(true);
+    },
+    120000,
+  );
 });

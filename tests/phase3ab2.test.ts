@@ -21,6 +21,9 @@ const adminSrc = await Bun.file("src/convex/admin.ts").text();
 const accessSrc = await Bun.file("src/convex/access.ts").text();
 const schemaSrc = await Bun.file("src/convex/schema.ts").text();
 const sessionSrc = await Bun.file("src/convex/session.ts").text();
+// Batch A1: the last-admin guard moved to the ONE shared server-side helper
+// (countActiveAdministrators in adminLifecycle.ts) shared with revocation.
+const lifecycleSrc = await Bun.file("src/convex/adminLifecycle.ts").text();
 
 // ---------------------------------------------------------------------------
 // Membership status domain model
@@ -103,12 +106,26 @@ describe("setMembershipStatus authorization structure (source guards)", () => {
   });
 
   test("the organization's last active administrator cannot be locked out", () => {
-    expect(mutationSrc).toContain("otherActiveAdmins");
-    expect(mutationSrc).toContain("p.role === \"admin\"");
+    // STEP 5: the guard delegates to the shared counting helper rather than
+    // an inline copy, so the predicate is enforced identically to the
+    // revocation flow. It must run on transitions that can remove the
+    // org's last EFFECTIVE administrator from an ACTIVE membership.
     expect(mutationSrc).toContain(
-      "effectiveMembershipStatus(p.membershipStatus) === \"active\"",
+      "countActiveAdministrators(ctx, access.organizationId!, target._id)",
     );
+    expect(mutationSrc).toContain('current === "active"');
     expect(mutationSrc).toContain("lastAdminGuardMessage()");
+    // The shared helper itself: admin-row predicate, active membership,
+    // and exclusion of expired trusted demo-role grants.
+    const helperSrc =
+      lifecycleSrc.match(
+        /export async function countActiveAdministrators\([\s\S]*?\n\}/,
+      )?.[0] ?? "";
+    expect(helperSrc).toContain("p.role === ADMIN_ROLE");
+    expect(helperSrc).toContain(
+      'effectiveMembershipStatus(p.membershipStatus) === "active"',
+    );
+    expect(helperSrc).toContain("demoRoleExpiresAt");
   });
 
   test("accepted changes are audited (append-only, with target identity)", () => {

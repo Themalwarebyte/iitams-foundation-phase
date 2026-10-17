@@ -1,6 +1,9 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { guestAuthEnabled } from "./access";
+import type { Doc } from "./_generated/dataModel";
+
+type ProfileDoc = Doc<"userProfiles">;
 
 /**
  * DEVELOPMENT-ONLY OTP capture — INTERNAL-ONLY backend functions.
@@ -63,6 +66,62 @@ export const capture = internalMutation({
       createdAt: Date.now(),
     });
     return { ok: true };
+  },
+});
+
+/**
+ * Trusted-harness maintenance: revert profiles whose role was replaced by an
+ * EXPIRED-PENDING trusted demo-role grant so the one-time administrator
+ * bootstrap can execute against a clean demo organization during behavioral
+ * testing. Only touches rows showing a HARNESS signature (demoRoleGrantedAt
+ * set); never touches organically assigned roles or memberships.
+ */
+export const revertDemoAdminGrants = internalMutation({
+  args: {
+    // Test isolation (source-review fix): the runner supplies the EXPLICIT
+    // fixture user ids whose demo-role artifacts may be reverted (each is
+    // the runner's OWN granted guest, read back from its own session query
+    // before the grant). Without the list the mutation refuses — no silent
+    // organization-wide sweep that could touch administrators outside the
+    // test's own fixtures. Only rows carrying the HARNESS signature or a
+    // guest-admin artifact belonging to those explicit users are reverted;
+    // real verified members' roles are never touched.
+    fixtureUserIds: v.array(v.id("users")),
+  },
+  handler: async (ctx, args) => {
+    if (!guestAuthEnabled()) {
+      throw new Error("Demo-role maintenance is only available on development deployments");
+    }
+    if (args.fixtureUserIds.length === 0) {
+      throw new Error("Revert requires an explicit fixture user id list");
+    }
+    let reverted = 0;
+    for (const userId of args.fixtureUserIds) {
+      const u = await ctx.db.get(userId);
+      if (!u) continue;
+      const profile = (await ctx.db
+        .query("userProfiles")
+        .withIndex("userId", (q) => q.eq("userId", userId))
+        .unique()) as ProfileDoc | null;
+      if (!profile) continue;
+      // Strict revert targets — both are TEST ARTIFACTS ONLY:
+      //  a) the profile carries the harness-grant signature; or
+      //  b) it is an ADMINISTRATOR whose user is ANONYMOUS (guest). Guests
+      //     bootstrap to the read-only member tier in the demo org, so a
+      //     guest administrator is always a grant artifact. REAL verified
+      //     users (fixture or not) are never reverted.
+      const isGuestArtifact =
+        profile.demoRoleGrantedAt !== undefined ||
+        (profile.role === "admin" && u.isAnonymous === true);
+      if (!isGuestArtifact) continue;
+      await ctx.db.patch(profile._id, {
+        role: "member",
+        demoRoleExpiresAt: undefined,
+        demoRoleGrantedAt: undefined,
+      });
+      reverted += 1;
+    }
+    return { reverted };
   },
 });
 

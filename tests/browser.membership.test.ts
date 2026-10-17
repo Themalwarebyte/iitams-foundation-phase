@@ -254,9 +254,20 @@ describe("IITAMS Phase 3A Batch 2A — membership lifecycle", () => {
       ).toBe(true);
 
       // The member's session regains its organization context automatically.
-      expect(
-        await visible(b.page, b.page.getByText("IITAMS Demo MDAC").first(), 25000),
-      ).toBe(true);
+      if (!(await visible(b.page, b.page.getByText("IITAMS Demo MDAC").first(), 25000))) {
+        // Diagnose instead of failing anonymously: the live session state, the
+        // rendered body and any page errors distinguish a reactivity defect
+        // from a stale row/locator mismatch.
+        const state = await sessionInfo(b.page).catch(() => null);
+        const body = await b.page
+          .locator("body")
+          .innerText()
+          .then((t) => t.replace(/\s+/g, " ").slice(0, 400))
+          .catch(() => "<body unreadable>");
+        throw new Error(
+          `member session did not regain organization context — session=${JSON.stringify(state)} body="${body}" errors=${JSON.stringify(b.errors)}`,
+        );
+      }
 
       expect(b.errors, `member page errors: ${b.errors.join(" | ")}`).toHaveLength(0);
       expect(a.errors, `admin page errors: ${a.errors.join(" | ")}`).toHaveLength(0);

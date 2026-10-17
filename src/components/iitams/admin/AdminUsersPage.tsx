@@ -5,6 +5,9 @@ import {
   PauseCircle,
   PlayCircle,
   RefreshCw,
+  ShieldCheck,
+  ShieldOff,
+  ShieldPlus,
   UserMinus,
   UserPlus,
   Users,
@@ -39,6 +42,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -644,6 +648,292 @@ function InvitationsPanel({ canManage }: { canManage: boolean }) {
 }
 
 /**
+ * Batch A1 — "Grant administrator" action on a directory member.
+ * Creates a PENDING request server-side (the recipient confirms in their own
+ * session); this button never assigns the role. The server refuses guests,
+ * unverified, ineligible, cross-org or already-admin targets, self-promotion
+ * and duplicates.
+ */
+function GrantAdminButton({
+  row,
+  disabled,
+}: {
+  row: DirectoryRow;
+  disabled?: boolean;
+}) {
+  const grant = useMutation(api.adminLifecycle.grantAdministrator);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    setBusy(true);
+    try {
+      await grant({ profileId: row._id as never });
+      toast.success(
+        `Administrator grant requested for ${row.name}. It activates only after they confirm it at /privilege-requests.`,
+      );
+      setOpen(false);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "The grant request was refused.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={disabled || busy}
+          title="Request the platform administrator role for this member — they must confirm it themselves (server-enforced, audited)"
+        >
+          <ShieldPlus className="size-3.5" aria-hidden />
+          Grant admin
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            Request administrator grant for {row.name}?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            This creates a pending request — {row.name} must sign in and
+            explicitly accept it at /privilege-requests before any privilege
+            changes. The request expires without action; the recipient can also
+            decline. You can cancel it while it is pending.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={() => void submit()} disabled={busy}>
+            Create grant request
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+/**
+ * Batch A1 — administrator lifecycle management (organization-scoped).
+ * Pending administrator grants (cancelable) and the organization's active
+ * administrators with revoke (previous role restored server-side; the
+ * last-active-administrator invariant is enforced server-side). Every
+ * mutation re-checks `admin.manage` — this UI is authorization UX only.
+ * Bootstrap configuration and secrets are NEVER rendered in the frontend.
+ */
+function AdministratorPanel({ canManage }: { canManage: boolean }) {
+  const lifecycle = useQuery(api.adminLifecycle.listAdministratorLifecycle, {}) as
+    | {
+        grants: Array<{
+          _id: string;
+          targetLabel: string;
+          initiatorLabel: string;
+          previousRole: string;
+          status: string;
+          effectiveStatus: string;
+          requestedAt: number;
+        }>;
+        administrators: Array<{
+          profileId: string;
+          label: string;
+          membershipStatus: string;
+        }>;
+      }
+    | undefined;
+  const cancel = useMutation(api.adminLifecycle.cancelAdministratorGrant);
+  const revoke = useMutation(api.adminLifecycle.revokeAdministrator);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<{
+    profileId: string;
+    name: string;
+  } | null>(null);
+
+  async function doCancel(grantId: string, label: string) {
+    setPendingId(grantId);
+    try {
+      await cancel({ grantId: grantId as never });
+      toast.success(`Administrator grant for ${label} cancelled.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Cancel was refused.");
+    } finally {
+      setPendingId(null);
+    }
+  }
+
+  async function doRevoke() {
+    if (!revokeTarget) return;
+    setPendingId(revokeTarget.profileId);
+    try {
+      await revoke({ profileId: revokeTarget.profileId as never });
+      toast.success(
+        `${revokeTarget.name}'s administrator role was revoked; their previous role was restored. Effective immediately.`,
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Revocation was refused.");
+    } finally {
+      setPendingId(null);
+      setRevokeTarget(null);
+    }
+  }
+
+  if (lifecycle === undefined) return null;
+
+  const pendingGrants = lifecycle.grants.filter(
+    (g) => g.effectiveStatus === "pending",
+  );
+  const history = lifecycle.grants.filter(
+    (g) => !["pending", "expired"].includes(g.effectiveStatus),
+  );
+
+  return (
+    <section className="mt-10">
+      <div className="mb-3">
+        <h2 className="text-lg font-semibold">Administrators</h2>
+        <p className="text-sm text-muted-foreground">
+          Controlled administrator lifecycle for this organization. Pending
+          grants elevate nobody until the recipient confirms them in their own
+          session; revocation restores the recorded previous role immediately.
+        </p>
+      </div>
+
+      {canManage && pendingGrants.length > 0 && (
+        <div className="mb-4 rounded-lg border border-info/25 bg-info/5 p-3">
+          {pendingGrants.map((g) => (
+            <div
+              key={g._id}
+              className="flex flex-wrap items-center justify-between gap-2 py-1"
+            >
+              <div>
+                <p className="text-sm font-medium">
+                  Administrator grant pending for {g.targetLabel}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Requested by {g.initiatorLabel} on{" "}
+                  {formatRelative(g.requestedAt)} — awaiting the recipient's own
+                  confirmation.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pendingId === g._id}
+                title="Cancel this pending request (no privilege has been granted)"
+                onClick={() => void doCancel(g._id, g.targetLabel)}
+              >
+                <Ban className="size-3.5" aria-hidden />
+                Cancel
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {lifecycle.administrators.length === 0 ? (
+        <EmptyState
+          icon={ShieldCheck}
+          title="No active administrators"
+          description={
+            canManage
+              ? "Use “Grant administrator” on a directory member — the recipient confirms the privilege in their own session."
+              : "This organization has no active administrator on record."
+          }
+        />
+      ) : (
+        <div className="space-y-2">
+          {lifecycle.administrators.map((a) => {
+            const name = a.label;
+            return (
+              <div
+                key={a.profileId}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3"
+              >
+                <div>
+                  <p className="flex items-center gap-2 text-sm font-medium">
+                    <ShieldCheck className="size-4 text-primary" aria-hidden />
+                    {name}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Platform Administrator · membership {a.membershipStatus}
+                  </p>
+                </div>
+                {canManage && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={pendingId === a.profileId}
+                    title="Revoke this administrator's role; their previous role is restored and the change is effective immediately (server-enforced, audited)"
+                    onClick={() => setRevokeTarget({ profileId: a.profileId, name })}
+                  >
+                    <ShieldOff className="size-3.5" aria-hidden />
+                    Revoke
+                  </Button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {history.length > 0 && (
+        <div className="mt-4">
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Grant history
+          </p>
+          <ul className="space-y-1">
+            {history.slice(0, 10).map((g) => (
+              <li
+                key={g._id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-1.5 text-xs"
+              >
+                <span>
+                  {g.targetLabel} · by {g.initiatorLabel}
+                </span>
+                <StatusChip status={g.effectiveStatus} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <AlertDialog
+        open={!!revokeTarget}
+        onOpenChange={(o) => !o && setRevokeTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Revoke {revokeTarget?.name}&apos;s administrator role?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Their previous role is restored verbatim (recorded at grant
+              initiation — never converted automatically to Member). The change
+              is effective immediately and fully audited. The organization must
+              always retain another active administrator.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={pendingId !== null}>
+              Keep privilege
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void doRevoke()}
+              disabled={pendingId !== null}
+            >
+              Confirm revocation
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </section>
+  );
+}
+
+/**
  * User directory (Phase 3A — Batch 2A + 2B).
  * Displays name, email, organization membership, role and the real
  * organization-membership lifecycle status for every provisioned profile in
@@ -762,7 +1052,12 @@ export function AdminUsersPage() {
           if (!r.provisioned) return null;
           const busy = pendingId === r._id;
           return (
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {r.membershipStatus === "active" &&
+                r.role !== "admin" &&
+                !r.isAnonymous && (
+                  <GrantAdminButton row={r} />
+                )}
               {r.membershipStatus === "active" ? (
                 <>
                   <Button
@@ -882,6 +1177,8 @@ export function AdminUsersPage() {
 
       {/* Batch 2C — organization-scoped invitation management (this org only). */}
       <InvitationsPanel canManage={canManage} />
+      {/* Batch A1 — administrator lifecycle (grant/cancel/revoke) (this org only). */}
+      <AdministratorPanel canManage={canManage} />
     </AdminPageShell>
   );
 }

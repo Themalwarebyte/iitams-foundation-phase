@@ -169,7 +169,8 @@ async function signInViaEmailOtp(
     waitUntil: "domcontentloaded",
   });
   const emailInput = page.locator('input[name="email"]');
-  if (!(await visible(emailInput, 10000))) {
+  // Generous: the managed dev server may still be warming a route under load.
+  if (!(await visible(emailInput, 25000))) {
     return { ok: false, reason: "auth email form not visible" };
   }
   await emailInput.fill(email);

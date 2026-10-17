@@ -86,8 +86,7 @@ async function signInAnonymous(): Promise<ConvexHttpClient> {
 describe("demo escalation — backend authorization boundary", () => {
   test("the old public self-escalation mutations no longer exist client-side", async () => {
     if (!(await serverUp())) {
-      console.warn("[test:SKIPPED] convex backend unreachable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] convex backend unreachable");
     }
     // The public API surface must expose no escalation mutation at all.
     const publicNames = Object.keys(
@@ -99,8 +98,7 @@ describe("demo escalation — backend authorization boundary", () => {
 
   test("unauthenticated callers cannot elevate roles (internal reference refused)", async () => {
     if (!(await serverUp())) {
-      console.warn("[test:SKIPPED] convex backend unreachable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] convex backend unreachable");
     }
     // The replacement is internal: a client-initiated call through the
     // internal reference is refused by the deployment itself.
@@ -114,8 +112,7 @@ describe("demo escalation — backend authorization boundary", () => {
 
   test("ordinary demo guests cannot self-escalate (guest session, no escalation path)", async () => {
     if (!(await serverUp())) {
-      console.warn("[test:SKIPPED] convex backend unreachable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] convex backend unreachable");
     }
     const guest = await signInAnonymous();
     const session = (await guest.query(api.session.getSession, {})) as {
@@ -131,8 +128,7 @@ describe("demo escalation — backend authorization boundary", () => {
 
   test("harness grant route refuses missing tester token (uniform 403)", async () => {
     if (!(await serverUp())) {
-      console.warn("[test:SKIPPED] convex backend unreachable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] convex backend unreachable");
     }
     const missing = await fetch(`${HARNESS}/api/dev-grant-demo-role`, {
       method: "POST",
@@ -145,8 +141,7 @@ describe("demo escalation — backend authorization boundary", () => {
 
   test("harness grant route refuses wrong tester token (identical 403, no oracle)", async () => {
     if (!(await serverUp())) {
-      console.warn("[test:SKIPPED] convex backend unreachable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] convex backend unreachable");
     }
     const wrong = await fetch(`${HARNESS}/api/dev-grant-demo-role`, {
       method: "POST",
@@ -177,8 +172,7 @@ describe("demo escalation — backend authorization boundary", () => {
 
   test("harness grant route rejects unknown or unsupported roles", async () => {
     if (!(await serverUp()) || !harnessConfigured) {
-      console.warn("[test:SKIPPED] backend/harness token unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] backend/harness token unavailable");
     }
     const res = await harness("/api/dev-grant-demo-role", {
       userId: "jsynth000000000000000000000000",
@@ -190,8 +184,7 @@ describe("demo escalation — backend authorization boundary", () => {
 
   test("non-anonymous targets are refused (real identity via the trusted seeder)", async () => {
     if (!(await serverUp()) || !harnessConfigured) {
-      console.warn("[test:SKIPPED] backend/harness token unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] backend/harness token unavailable");
     }
     // A REAL non-anonymous identity (verified email, isAnonymous=false),
     // created through the trusted seeder — never a fabricated id.
@@ -222,8 +215,7 @@ describe("demo escalation — backend authorization boundary", () => {
 
   test("legitimate trusted-runner grant works and is visible in the guest's own session", async () => {
     if (!(await serverUp()) || !harnessConfigured) {
-      console.warn("[test:SKIPPED] backend/harness token unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] backend/harness token unavailable");
     }
     // Real guest sign-in via the anonymous provider + the app's own audited
     // provisioning path (joinDemoOrganization), then a trusted-runner grant.
@@ -259,8 +251,7 @@ describe("demo escalation — backend authorization boundary", () => {
 
   test("server-enforced expiry: a lapsed grant no longer authorizes the elevated tier", async () => {
     if (!(await serverUp()) || !harnessConfigured) {
-      console.warn("[test:SKIPPED] backend/harness token unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] backend/harness token unavailable");
     }
     const guest = await signInAnonymous();
     await guest.mutation(api.session.joinDemoOrganization, {});
@@ -290,8 +281,7 @@ describe("demo escalation — backend authorization boundary", () => {
 
   test("trusted-runner revocation restores the read-only tier", async () => {
     if (!(await serverUp()) || !harnessConfigured) {
-      console.warn("[test:SKIPPED] backend/harness token unavailable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] backend/harness token unavailable");
     }
     const guest = await signInAnonymous();
     await guest.mutation(api.session.joinDemoOrganization, {});

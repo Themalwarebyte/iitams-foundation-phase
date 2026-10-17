@@ -152,6 +152,23 @@ export const getForDelivery = internalQuery({
   },
 });
 
+/** Trusted-harness helper: the delivery-generation snapshot (hash only) the
+ * synchronous redelivery route anchors on. Mirrors "hash as of now".
+ *
+ * Returns the row's CURRENT secretHash (or null while no token has been
+ * minted yet) — never a plaintext secret. */
+export const getForDeliverySnapshot = internalQuery({
+  args: { invitationId: v.id("organizationInvitations") },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ currentSecretHash: string | null } | null> => {
+    const inv = (await ctx.db.get(args.invitationId)) as InvitationDoc | null;
+    if (!inv) return null;
+    return { currentSecretHash: inv.secretHash ?? null };
+  },
+});
+
 export const getOrganizationName = internalQuery({
   args: { organizationId: v.id("organizations") },
   handler: async (ctx, args): Promise<string | null> => {
@@ -178,9 +195,26 @@ export const getOrganizationName = internalQuery({
  * retry atomically invalidates every previously issued token: the email is
  * sent only AFTER the new hash is committed, so a delivered token is always
  * the currently-valid one.
+ *
+ * CONCURRENCY INVARIANT (delivery-generation anchor): Convex runs each
+ * mutation in a serialized transaction, so the read of the row and the
+ * hash replacement below are atomic together. A scheduled delivery action
+ * carries `expectedSecretHash` — the invitation's secretHash AS OF ITS
+ * SCHEDULING (undefined for a brand-new invitation that has never minted).
+ * If anything minted or reissued a NEWER token between scheduling and
+ * execution (an administrative resend, a trusted-harness reissue, another
+ * delivery attempt), the executed action is STALE: it must not mint, must
+ * not overwrite the newer hash, must not consume the attempt budget, and
+ * must not touch delivery status — the newer issuance owns delivery from
+ * its own scheduling point onward. Only the matching generation proceeds.
  */
 export const mintDeliverableSecret = internalMutation({
-  args: { invitationId: v.id("organizationInvitations") },
+  args: {
+    invitationId: v.id("organizationInvitations"),
+    // Hash-only generation anchor (NEVER plaintext). Scheduling-side value
+    // is durable but is not a useable token by itself.
+    expectedSecretHash: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const inv = (await ctx.db.get(args.invitationId)) as InvitationDoc | null;
     if (!inv) return { ok: false as const, reason: "missing" };
@@ -194,6 +228,12 @@ export const mintDeliverableSecret = internalMutation({
     const attempts = inv.deliveryAttempts ?? 0;
     if (attempts >= MAX_SEND_ATTEMPTS_PER_INVITATION) {
       return { ok: false as const, reason: "attempt-budget-exhausted" };
+    }
+    // Generation comparison is part of the same serialized transaction as
+    // the patch below: a newer issuance (resend or harness reissue) that
+    // replaced the hash makes THIS attempt stale. No write, no budget use.
+    if ((inv.secretHash ?? undefined) !== (args.expectedSecretHash ?? undefined)) {
+      return { ok: false as const, reason: "superseded" };
     }
     const now = Date.now();
     const secret = generateInvitationSecret();
@@ -374,14 +414,20 @@ export const deliverInvitationEmail = internalAction({
   args: {
     invitationId: v.id("organizationInvitations"),
     // SECURITY (acceptance-review): scheduled args are durably stored — they
-    // must NEVER carry the plaintext secret. Only the id travels here; the
-    // secret is minted at send time (see mintDeliverableSecret).
+    // must NEVER carry the plaintext secret. Only the id travels here plus
+    // the generation anchor (the secretHash current at scheduling time;
+    // omitted for a brand-new invitation whose first delivery has not yet
+    // minted). The secret is minted at send time (see mintDeliverableSecret).
+    // A STALE anchor (a newer resend/reissue happened meanwhile) makes the
+    // mint refuse without writing anything — never overwriting a newer link.
+    expectedSecretHash: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const minted = await ctx.runMutation(internal.invitations.mintDeliverableSecret, {
       invitationId: args.invitationId,
+      expectedSecretHash: args.expectedSecretHash,
     });
-    if (!minted.ok) return; // terminal / expired / budget exhausted
+    if (!minted.ok) return; // terminal / expired / budget exhausted / superseded
     const stillActionable = await ctx.runMutation(internal.invitations.assertStillActionable, {
       invitationId: args.invitationId,
       secretHash: minted.secretHash,
@@ -600,7 +646,11 @@ async function createInvitationRow(
   });
 
   // Delivery pipeline: the scheduled action receives ONLY the invitation id
-  // (scheduled args are durably stored — never a plaintext token).
+  // (scheduled args are durably stored — never a plaintext token). No
+  // generation anchor is attached: this row was created milliseconds ago
+  // and can have no minted token yet, so the action's anchor is the unset
+  // generation; a reissue or resend that lands before the action runs makes
+  // it stale and the mint refuses (see mintDeliverableSecret).
   await ctx.scheduler.runAfter(0, internal.invitations.deliverInvitationEmail, {
     invitationId,
   });
@@ -729,10 +779,12 @@ export const resendInvitation = mutation({
       throw new Error("The resend limit for this invitation has been reached");
     }
 
-    // SECURITY (acceptance-review): scheduled args carry ONLY the id — the
-    // delivery action mints a FRESH secret (invalidating every previously
-    // issued token by hash replacement) right before its send, so no
-    // plaintext ever lands in durable scheduler storage.
+    // SECURITY (acceptance-review): scheduled args carry ONLY the id and the
+    // generation anchor — the action must only mint if the hash that is
+    // current RIGHT NOW is still current when the action executes (i.e., no
+    // newer reissue/resend superseded this one meanwhile). The anchor is the
+    // secretHash — a one-way hash, never a plaintext token — so durable
+    // scheduler storage still contains no useable credential.
     await ctx.db.patch(inv._id, {
       status: "pending_delivery",
       deliveryStatus: "not_yet",
@@ -740,6 +792,7 @@ export const resendInvitation = mutation({
     });
     await ctx.scheduler.runAfter(0, internal.invitations.deliverInvitationEmail, {
       invitationId: inv._id,
+      expectedSecretHash: inv.secretHash,
     });
     await logAudit(ctx, {
       organizationId: access.organizationId,
@@ -813,7 +866,12 @@ export const inspectInvitation = query({
       .withIndex("by_secret_hash", (q) => q.eq("secretHash", args.secretHash))
       .unique();
     if (!inv) return { valid: false as const, reason: TOKEN_REFUSAL };
-    if (!isActionable(inv.status)) {
+    // The inspector uses the SAME terminal-status contract as the acceptance
+    // mutation (isReissueable): a transient delivery failure must NOT make
+    // the page present the (still valid) link as invalid — acceptInvitation
+    // would otherwise succeed while the UI refuses to offer the join step.
+    // Revoked / accepted remain refused (not reissueable); expiry below.
+    if (!isReissueable(inv.status)) {
       return { valid: false as const, reason: TOKEN_REFUSAL };
     }
     const now = Date.now();

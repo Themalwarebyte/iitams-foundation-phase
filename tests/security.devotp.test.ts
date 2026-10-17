@@ -119,12 +119,10 @@ describe("dev OTP + test-identity seeding — backend authorization boundary", (
 
   test("legitimate OTP authentication loop works through the TRUSTED harness", async () => {
     if (!harnessConfigured) {
-      console.warn("[test:SKIPPED] trusted harness token not configured in this runner");
-      return;
+      throw new Error("[test:PREREQ-FAILED] trusted harness token not configured in this runner");
     }
     if (!(await serverUp())) {
-      console.warn("[test:SKIPPED] convex backend unreachable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] convex backend unreachable");
     }
     // 1. Start a REAL email-OTP sign-in through the public auth action.
     const email = `harness-${Date.now()}@check.example`;
@@ -162,8 +160,7 @@ describe("dev OTP + test-identity seeding — backend authorization boundary", (
 
   test("harness routes refuse unauthenticated and wrongly-tokenized callers", async () => {
     if (!(await serverUp())) {
-      console.warn("[test:SKIPPED] convex backend unreachable");
-      return;
+      throw new Error("[test:PREREQ-FAILED] convex backend unreachable");
     }
     // Missing token → uniform refusal.
     const noToken = await fetch(`${HARNESS}/api/dev-otp`, {

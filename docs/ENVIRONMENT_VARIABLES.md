@@ -34,6 +34,25 @@ VITE_SITE_URL=http://localhost:5173
 # SMTP_FROM="IITAMS <no-reply@example.go.ke>"
 ```
 
+## One-time administrator bootstrap (Convex deployment variables)
+
+Set with `npx convex env set KEY value` on a FRESH deployment only — they
+drive `claimInitialAdministrator` (see
+[`ADMINISTRATOR_BOOTSTRAP.md`](ADMINISTRATOR_BOOTSTRAP.md))
+
+```bash
+IITAMS_BOOTSTRAP_ORG_CODE="HQ-MAIN"        # `code` of the target organization
+IITAMS_BOOTSTRAP_ADMIN_EMAIL="ict.oair@example.go.ke"  # designated admin
+IITAMS_BOOTSTRAP_TOKEN="<openssl rand -hex 24>"        # one-time activation secret
+```
+
+- All three variables are required together; if any is missing, bootstrap is
+  disabled and the mutation refuses with a generic error.
+- The plaintext token is never stored anywhere durable — only its SHA-256
+  hash inside the `initialBootstraps` consumption row.
+- After the first successful claim the bootstrap is permanently consumed;
+  unset the variables as hygiene.
+
 ## Variable reference
 
 | Variable | Scope | Required | Purpose |
@@ -44,6 +63,9 @@ VITE_SITE_URL=http://localhost:5173
 | `SITE_URL` | Convex deployment | Yes | Canonical URL for auth redirects. |
 | `VITE_SITE_URL` | build (Vite) | No | Canonical public URL for self-hosted runs. |
 | `SMTP_*` | Convex deployment | No | Email delivery for OTP codes in production. |
+| `IITAMS_BOOTSTRAP_ORG_CODE` | Convex deployment | No (fresh deployments) | One-time administrator bootstrap target organization. |
+| `IITAMS_BOOTSTRAP_ADMIN_EMAIL` | Convex deployment | No (fresh deployments) | Designated first administrator's email identity. |
+| `IITAMS_BOOTSTRAP_TOKEN` | Convex deployment | No (fresh deployments) | High-entropy one-time activation secret (hash-only persistence). |
 
 ## Precedence & security notes
 

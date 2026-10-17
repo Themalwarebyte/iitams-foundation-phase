@@ -118,6 +118,17 @@ export function provisioningSafeRefusal(): string {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 3A — Batch A1: administrator lifecycle
+// ---------------------------------------------------------------------------
+
+/** Administrator-grant confirmation window. After expiry the grant can never
+ * elevate (server-side refusal) — only a fresh request can. */
+export const ADMIN_GRANT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Display label for the canonical privileged role (`admin` in the registry). */
+export const ADMIN_ROLE_LABEL = "Platform Administrator";
+
+// ---------------------------------------------------------------------------
 // Phase 3A — Batch 2C: secure organization invitations and onboarding
 // ---------------------------------------------------------------------------
 

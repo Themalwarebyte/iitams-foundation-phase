@@ -329,6 +329,61 @@ const schema = defineSchema(
       .index("by_organization", ["organizationId"]),
 
     // ------------------------------------------------------------------
+    // ADMINISTRATOR LIFECYCLE (Phase 3A — Batch A1)
+    // ------------------------------------------------------------------
+    // Controlled administrator-grant workflow: an existing administrator
+    // initiates a PENDING grant for an eligible same-organization member;
+    // the grant elevates NOBODY until the recipient's own verified identity
+    // accepts it server-side. Every transition is append-audited and stores
+    // the privileged role's PREVIOUS role so revocation restores it exactly
+    // (never an automatic demotion to `member`).
+    administratorGrants: defineTable({
+      organizationId: v.id("organizations"),
+      targetUserId: v.id("users"),
+      // Auditable labels only — no secrets, no tokens, no OTP codes.
+      targetLabel: v.string(),
+      initiatorUserId: v.id("users"),
+      initiatorLabel: v.string(),
+      // The target's own role AT INITIATION (the canonical registry keys);   
+      // `admin` is structurally impossible (initiation refuses targets that
+      // already hold the role).
+      previousRole: v.union(...roleValidator.members),
+      // pending → accepted | rejected | expired | cancelled
+      // accepted → revoked
+      status: v.union(
+        v.literal("pending"),
+        v.literal("accepted"),
+        v.literal("rejected"),
+        v.literal("expired"),
+        v.literal("cancelled"),
+        v.literal("revoked"),
+      ),
+      requestedAt: v.number(),
+      expiresAt: v.number(),
+      decidedAt: v.optional(v.number()),
+      revokedAt: v.optional(v.number()),
+      revokedByUserId: v.optional(v.id("users")),
+    })
+      .index("by_organization_status", ["organizationId", "status"])
+      .index("by_target_status", ["targetUserId", "status"]),
+
+    // One-time, deployment-controlled first-administrator bootstrap.
+    // A row here IS the durable consumption marker: once inserted, the
+    // bootstrap for that organization stays disabled forever, even if the
+    // environment token is accidentally left configured. Only the SHA-256
+    // hash of the consumed secret is persisted — never the secret itself.
+    initialBootstraps: defineTable({
+      organizationId: v.id("organizations"),
+      targetUserId: v.id("users"),
+      targetEmail: v.string(),
+      // The target's role BEFORE the bootstrap grant (restored verbatim on
+      // revocation); `admin` is structurally impossible here.
+      previousRole: v.union(...roleValidator.members),
+      tokenHash: v.string(), // SHA-256 of the consumed one-time secret
+      consumedAt: v.number(),
+    }).index("by_organization", ["organizationId"]),
+
+    // ------------------------------------------------------------------
     // AUDIT MANAGEMENT
     // ------------------------------------------------------------------
     // Module 1 — Audit Universe: all ICT entities that may require coverage.

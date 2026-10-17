@@ -321,6 +321,87 @@ http.route({
 });
 
 /**
+ * POST /api/dev-invite-redeliver { invitationId, expectedSecretHash? } —
+ * trusted test harness (Batch A1 stabilization): replay the delivery
+ * pipeline SYNCHRONOUSLY (ctx.runAction) so a test can deterministically
+ * reproduce scheduler/reissue orderings without waiting for wall-clock
+ * scheduling latency.
+ *
+ *  - body WITHOUT `expectedSecretHash`: the route snapshots the
+ *    invitation's CURRENT hash via an internal query and passes it as the
+ *    generation anchor — i.e. "deliver normally, as of now".
+ *  - body WITH `expectedSecretHash`: the caller pins an EXPLICIT anchor —
+ *    the exact shape of a queued scheduled action whose generation was
+ *    captured before a newer reissue — enabling the stale-action regression.
+ *
+ * The anchor is a one-way hash only; no plaintext secret is ever accepted
+ * or returned here beyond the normal delivery outcome. Dev-gated AND
+ * token-guarded like every other harness route.
+ */
+http.route({
+  path: "/api/dev-invite-redeliver",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (!isTrustedDevTester(request)) return jsonError(403);
+    let args: { invitationId?: unknown; expectedSecretHash?: unknown };
+    try {
+      args = (await request.json()) as typeof args;
+    } catch {
+      return jsonError(403); // malformed body from an unauthorized caller: uniform refusal
+    }
+    if (typeof args.invitationId !== "string" || args.invitationId.length === 0) {
+      return jsonError(403);
+    }
+    // Explicit anchors must look like a SHA-256 hex digest; the guard can
+    // only be exercised with a generation the caller actually pinned.
+    if (
+      args.expectedSecretHash !== undefined &&
+      (typeof args.expectedSecretHash !== "string" ||
+        !/^[a-f0-9]{64}$/.test(args.expectedSecretHash))
+    ) {
+      return jsonError(403);
+    }
+    const pinnedAnchor =
+      args.expectedSecretHash !== undefined
+        ? (args.expectedSecretHash as string)
+        : undefined;
+    const run = (async () => {
+      if (pinnedAnchor !== undefined) {
+        return await ctx.runAction(internal.invitations.deliverInvitationEmail, {
+          invitationId: args.invitationId as never,
+          expectedSecretHash: pinnedAnchor,
+        });
+      }
+      // Snapshot the CURRENT hash right now: this becomes the anchor, so a
+      // concurrent newer issuance between snapshot and action execution is
+      // correctly refused by the mint guard.
+      const inv = (await ctx.runQuery(internal.invitations.getForDeliverySnapshot, {
+        invitationId: args.invitationId as never,
+      })) as { currentSecretHash: string | null } | null;
+      const anchor =
+        inv === null ? undefined : inv.currentSecretHash === null ? undefined : inv.currentSecretHash;
+      return await ctx.runAction(internal.invitations.deliverInvitationEmail, {
+        invitationId: args.invitationId as never,
+        expectedSecretHash: anchor,
+      });
+    })()
+      .then(
+        (result) => new Response(JSON.stringify(result ?? { ok: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .catch((err: unknown) =>
+        new Response(JSON.stringify({ error: (err as Error).message.slice(0, 200) }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    return run;
+  }),
+});
+
+/**
  * POST /api/dev-expire-invitations { organizationId? } — trusted test
  * harness: persist due invitation expiry (pending → expired) for the whole
  * deployment or one organization, mirroring the production lifecycle sweep.
@@ -345,6 +426,102 @@ http.route({
           ? {}
           : { organizationId: organizationId as never },
       )
+      .then(
+        (result) => new Response(JSON.stringify(result), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .catch((err: unknown) =>
+        new Response(JSON.stringify({ error: (err as Error).message.slice(0, 200) }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    return run;
+  }),
+});
+
+/**
+ * POST /api/dev-expire-admin-grants { grantIds: string[] } — trusted test
+ * harness: expire therunner's OWN pending administrator grants (pending →
+ * expired with the same immutable audit event as lazy expiry). Test
+ * isolation (source-review fix): the route exists ONLY for records the
+ * runner explicitly names; a blanket organization-wide or global expiry
+ * (the former force:true behaviour) is refused — test artifacts must never
+ * surface as production lifecycle changes outside the test's fixtures.
+ */
+http.route({
+  path: "/api/dev-expire-admin-grants",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (!isTrustedDevTester(request)) return jsonError(403);
+    let args: { grantIds?: unknown; force?: unknown };
+    try {
+      args = (await request.json()) as typeof args;
+    } catch {
+      return jsonError(403); // malformed body from an unauthorized caller: uniform refusal
+    }
+    const grantIds = Array.isArray(args.grantIds)
+      ? (args.grantIds as unknown[]).filter(
+          (g): g is string => typeof g === "string" && g.length > 0,
+        )
+      : [];
+    if (grantIds.length === 0) {
+      // No explicit fixture list — refuse (never a global/bulk sweep).
+      return jsonError(403);
+    }
+    const run = await ctx
+      .runMutation(internal.adminLifecycle.expireDueGrants, {
+        grantIds: grantIds as never,
+      })
+      .then(
+        (result) => new Response(JSON.stringify(result), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .catch((err: unknown) =>
+        new Response(JSON.stringify({ error: (err as Error).message.slice(0, 200) }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    return run;
+  }),
+});
+
+/**
+ * POST /api/dev-revert-demo-admin-grants { fixtureUserIds: string[] } —
+ * trusted test harness: revert ONLY the demo-role artifacts of the explicit
+ * fixture users the runner names (its own granted guests). Test isolation
+ * (source-review fix): refusing when no explicit fixture list is supplied
+ * guarantees the old organization-wide sweep cannot silently revert
+ * administrators outside the test's own fixtures.
+ */
+http.route({
+  path: "/api/dev-revert-demo-admin-grants",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (!isTrustedDevTester(request)) return jsonError(403);
+    let fixtureUserIds: string[] = [];
+    try {
+      const body = (await request.json()) as { fixtureUserIds?: unknown };
+      fixtureUserIds = Array.isArray(body?.fixtureUserIds)
+        ? (body.fixtureUserIds as unknown[]).filter(
+            (id): id is string => typeof id === "string" && id.length > 0,
+          )
+        : [];
+    } catch {
+      return jsonError(403);
+    }
+    if (fixtureUserIds.length === 0) {
+      return jsonError(403);
+    }
+    const run = await ctx
+      .runMutation(internal.devOtp.revertDemoAdminGrants, {
+        fixtureUserIds: fixtureUserIds as never,
+      })
       .then(
         (result) => new Response(JSON.stringify(result), {
           status: 200,
