@@ -31,7 +31,7 @@
 | `auditEngagements` | Engagements with lifecycle status, lead auditor, progress | `by_organization`, `by_status` |
 | `findings` | Audit findings with severity/status/due dates | `by_organization`, `by_status`, `by_severity` |
 | `correctiveActions` | Remediation tracking per finding (owner, due, status) | `by_organization`, `by_status` |
-| `risks` | ICT risk register: 5×5 inherent/residual likelihood × impact | `by_organization`, `by_status` |
+| `risks` | ICT risk register: 5×5 inherent/residual likelihood × impact; org-scoped `R-###` identifier | `by_organization`, `by_status`, `by_organization_code` |
 | `riskTrendSnapshots` | Quarterly pre-aggregated risk trend series | `by_organization` |
 | `complianceFrameworks` | Frameworks with implemented/total controls and scores | `by_organization` |
 | `controls` | Control library with effectiveness states | `by_organization`, `by_effectiveness` |
@@ -40,7 +40,7 @@
 | `criticalServices` | BCM services with RTO/RPO target vs current, readiness | `by_organization` |
 | `drTests` | DR tests/exercises with status and lessons field | `by_organization`, `by_status` |
 | `notifications` | **Mixed scope:** user-scoped or org-wide | `by_user`, `by_organization` |
-| `auditLogs` | Append-only activity/audit trail — **mixed scope** | `by_organization` |
+| `auditLogs` | Append-only activity/audit trail — **mixed scope** | `by_organization`, `by_organization_entity` |
 
 **Tenant-scoped:** 13 tables (those with a `by_organization` index).
 **User-scoped:** `userProfiles`; the user-facing slice of `notifications`.

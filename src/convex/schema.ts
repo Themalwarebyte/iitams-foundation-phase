@@ -8,6 +8,10 @@ import {
   accessReviewRecommendationValidator,
   accessReviewRemediationStatusValidator,
 } from "../lib/accessReview";
+import {
+  riskCategoryValidator,
+  riskStatusValidator,
+} from "../lib/risk";
 
 // ============================================================================
 // IDENTITY & ACCESS — roles (RBAC)
@@ -91,14 +95,9 @@ export const findingStatusValidator = v.union(
   v.literal("corrective_action"),
 );
 
-export const riskStatusValidator = v.union(
-  v.literal("open"),
-  v.literal("assessing"),
-  v.literal("mitigating"),
-  v.literal("treated"),
-  v.literal("accepted"),
-  v.literal("closed"),
-);
+// Risk vocabulary + scoring live in src/lib/risk.ts (shared with the backend
+// and the register UI); re-exported here for existing schema consumers.
+export { riskStatusValidator };
 
 export const controlEffectivenessValidator = v.union(
   v.literal("effective"),
@@ -677,21 +676,36 @@ const schema = defineSchema(
     // ------------------------------------------------------------------
     risks: defineTable({
       organizationId: v.id("organizations"),
+      // Human-readable unique identifier within the organization (R-001…).
       code: v.string(),
       title: v.string(),
-      category: v.string(), // e.g. "Cyber", "Infrastructure", "Data", "Third-party"
+      // Enum-validated register category; `Other` covers local taxonomy.
+      category: riskCategoryValidator,
+      description: v.optional(v.string()),
+      // Related ICT asset, system or service (free text until an asset
+      // register model exists; kept deliberately denormalised).
+      assetOrService: v.optional(v.string()),
+      threat: v.optional(v.string()),
+      vulnerability: v.optional(v.string()),
       inherentLikelihood: v.number(), // 1-5
       inherentImpact: v.number(), // 1-5
       residualLikelihood: v.number(),
       residualImpact: v.number(),
+      existingControls: v.optional(v.string()),
+      treatmentRecommendation: v.optional(v.string()),
       status: riskStatusValidator,
+      // Owner: a provisioned member when available, plus a display label so
+      // historical rows stay readable if the membership changes.
+      ownerUserId: v.optional(v.id("users")),
       ownerName: v.optional(v.string()),
       reviewDue: v.optional(v.number()),
       isDemo: v.optional(v.boolean()),
       ...auditFields,
     })
       .index("by_organization", ["organizationId"])
-      .index("by_status", ["organizationId", "status"]),
+      .index("by_status", ["organizationId", "status"])
+      // Unique risk identifier per organization (creation checks this index).
+      .index("by_organization_code", ["organizationId", "code"]),
 
     // ------------------------------------------------------------------
     // COMPLIANCE MANAGEMENT
@@ -1034,7 +1048,15 @@ const schema = defineSchema(
       entityId: v.optional(v.string()),
       summary: v.optional(v.string()),
       createdAt: v.number(),
-    }).index("by_organization", ["organizationId"]),
+    })
+      .index("by_organization", ["organizationId"])
+      // Phase 3B: per-record history lookups (e.g. risk detail audit trail)
+      // without scanning the organization's whole log.
+      .index("by_organization_entity", [
+        "organizationId",
+        "entityType",
+        "entityId",
+      ]),
   },
   {
     // Production behaviour: documents are validated against this schema on

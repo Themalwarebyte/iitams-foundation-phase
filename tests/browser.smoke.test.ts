@@ -223,7 +223,11 @@ describe("IITAMS browser smoke", () => {
       expect(
         await visible(
           page,
-          page.getByText(/Sign in to open this module|Sign in to continue/i),
+          // Route-specific RequireAuth copy is allowed (e.g. the Risk
+          // Register); the assertion is about the gate, not the wording.
+          page.getByText(
+            /Sign in to open (this module|the Risk Register)|Sign in to continue/i,
+          ),
           20000,
         ),
       ).toBe(true);

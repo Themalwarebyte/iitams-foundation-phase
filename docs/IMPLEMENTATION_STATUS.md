@@ -45,6 +45,16 @@
 | Tests (unit 64/64; smoke 10/10; lifecycle journey pending — dev server unreachable at closure, see test report) | ✅ / ⏳ | `tests/phase2.test.ts`, `tests/browser.audit-lifecycle.test.ts`, `docs/PHASE_2_TEST_REPORT.md` |
 | Documentation set | ✅ | `docs/PHASE_2_IMPLEMENTATION.md`, `docs/AUDIT_MODULE_ARCHITECTURE.md`, `docs/AUDIT_WORKFLOW.md`, `docs/PHASE_2_DATA_MODEL.md` |
 
+## Phase 3B — module workflows
+
+| Workstream | Status | Evidence |
+| --- | --- | --- |
+| ICT Risk Register (list, detail, create, edit, filter, KPIs) | ✅ | `src/convex/risks.ts`, `/risk/register` |
+| Canonical 5×5 inherent/residual scoring shared by server and UI | ✅ | `src/lib/risk.ts` |
+| Permission + tenancy enforcement (`risk.view` / `risk.manage`, org re-check) | ✅ | `src/convex/risks.ts`, `src/convex/access.ts` |
+| Immutable per-record audit trail | ✅ | `auditLogs.by_organization_entity`, `risk.created` / `risk.updated` |
+| Tests (structural + runtime + two-organization isolation + Chromium journey) | ✅ | `tests/risk.test.ts`, `tests/risk.tenant.test.ts`, `tests/browser.risk-register.test.ts` |
+
 ## Phase 3 — Recommended next (not started)
 
 1. **User provisioning UI** — admin invites, role assignment, disable

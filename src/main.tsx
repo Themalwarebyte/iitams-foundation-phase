@@ -102,6 +102,11 @@ const AdminRolesPage = lazy(() =>
     default: m.AdminRolesPage,
   })),
 );
+const RiskRegisterPage = lazy(() =>
+  import("./components/iitams/risk/RiskRegisterPage").then((m) => ({
+    default: m.RiskRegisterPage,
+  })),
+);
 const AdminAccessReviewsPage = lazy(() =>
   import("./components/iitams/admin/AdminAccessReviewsPage").then((m) => ({
     default: m.AdminAccessReviewsPage,
@@ -192,7 +197,6 @@ const MODULE_ROUTES = [
   "/audit/management-responses",
   "/audit/follow-up",
   // ICT Risk
-  "/risk/register",
   "/risk/assessments",
   "/risk/treatments",
   "/risk/heat-map",
@@ -285,6 +289,18 @@ createRoot(document.getElementById("root")!).render(
                   }
                 />
               ))}
+              {/* Phase 3B — ICT Risk Management */}
+              <Route
+                path="/risk/register"
+                element={
+                  <RequireAuth
+                    title="Sign in to open the Risk Register"
+                    description="The ICT risk register is available to authorized users of your organization."
+                  >
+                    <RiskRegisterPage />
+                  </RequireAuth>
+                }
+              />
               {/* Phase 2 — Core IT Audit Management Engine */}
               <Route path="/audit/universe" element={<AuditRoute><UniversePage path="/audit/universe" /></AuditRoute>} />
               <Route path="/audit/plans" element={<AuditRoute><PlansPage path="/audit/plans" /></AuditRoute>} />

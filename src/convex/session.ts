@@ -57,6 +57,7 @@ export const getSession = query({
           audit: false,
           auditManage: false,
           risk: false,
+          riskManage: false,
           compliance: false,
           cyber: false,
           bcm: false,
@@ -82,6 +83,8 @@ export const getSession = query({
       audit: roleHasPermission(access.role, "audit.view"),
       auditManage: roleHasPermission(access.role, "audit.manage"),
       risk: roleHasPermission(access.role, "risk.view"),
+      // Phase 3B — risk register writes (server checks risk.manage itself).
+      riskManage: roleHasPermission(access.role, "risk.manage"),
       compliance: roleHasPermission(access.role, "compliance.view"),
       cyber: roleHasPermission(access.role, "cyber.view"),
       bcm: roleHasPermission(access.role, "bcm.view"),
