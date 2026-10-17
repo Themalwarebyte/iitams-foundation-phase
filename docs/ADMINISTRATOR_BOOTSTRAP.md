@@ -21,6 +21,10 @@ be assigned on a `userProfiles` row by **exactly three server paths**, all in
    on the accepted grant or bootstrap row (never an automatic `member`
    fallback).
 
+Ordinary (non-administrator) role changes use `admin.changeMemberRole` and can
+never assign `admin`; see [`ADMINISTRATOR_RECOVERY.md`](ADMINISTRATOR_RECOVERY.md)
+for routine management versus exceptional operator recovery.
+
 There is deliberately **no super-admin** and **no cross-organization
 authority**: every mutation resolves the caller's own organization first.
 
@@ -112,6 +116,13 @@ Recovery if the first claim is somehow impossible (e.g. email entered wrong):
 unset and re-set all three variables *before* any consumption; after
 consumption the deployment simply uses the normal grant lifecycle instead
 (admin → pending grant → target accepts).
+
+If an organization has lost **every** administrator (bootstrap already
+consumed and no admin left to approve a grant), the deployment operator uses
+the exceptional CLI-only path — `recoverOrganizationAdministrator` — described
+in [`ADMINISTRATOR_RECOVERY.md`](ADMINISTRATOR_RECOVERY.md). It is an internal
+mutation, disabled by default, and refuses while any effective administrator
+remains.
 
 ## Test coverage
 

@@ -2,7 +2,10 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { logAudit, requirePermission } from "./auditAccess";
-import { countActiveAdministrators } from "./adminLifecycle";
+import {
+  countActiveAdministrators,
+  hasPendingAdministratorGrant,
+} from "./adminLifecycle";
 import { applyInitialMembership } from "./membershipCore";
 import { IITAMS_ROLES, permissionsForRole } from "./access";
 import {
@@ -176,6 +179,10 @@ interface DirectoryEntry {
   membershipStatus: "active" | "suspended" | "deactivated";
   jobTitle?: string;
   lastSeenAt?: number;
+  /** Row creation time (from the profile document) — used by the directory's
+   * bounded render window so newly provisioned members are never hidden by
+   * an activity recency cut. */
+  createdAt: number;
 }
 
 /** Read-only user directory for the caller's organization. */
@@ -192,11 +199,16 @@ export const listUsers = query({
       )
       .collect();
 
-    const entries: DirectoryEntry[] = [];
-    for (const profile of profiles) {
-      // Compose the per-user display fields from both identity tables.
-      const user = await ctx.db.get(profile.userId);
-      entries.push({
+    // Compose the per-user display fields from both identity tables in
+    // PARALLEL: a sequential lookup per profile made the directory query
+    // exceed Convex's 1s execution budget once the demo organization grew to
+    // hundreds of members (the shared demo org accumulates guests).
+    const users = await Promise.all(
+      profiles.map((profile) => ctx.db.get(profile.userId)),
+    );
+    const entries: DirectoryEntry[] = profiles.map((profile, i) => {
+      const user = users[i];
+      return {
         _id: profile._id,
         name: user?.name ?? user?.email ?? "Unnamed user",
         email: user?.email ?? null,
@@ -206,8 +218,9 @@ export const listUsers = query({
         membershipStatus: effectiveMembershipStatus(profile.membershipStatus),
         jobTitle: profile.jobTitle,
         lastSeenAt: profile.lastSeenAt,
-      });
-    }
+        createdAt: profile._creationTime,
+      };
+    });
     return entries.sort((a, b) => a.name.localeCompare(b.name));
   },
 });
@@ -531,5 +544,120 @@ export const provisionMember = mutation({
     });
 
     return { ok: true, profileId: storedProfile._id, role: args.initialRole };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Batch A2 — routine administrator role management (admin.manage)
+// ---------------------------------------------------------------------------
+
+/**
+ * Change an ACTIVE member's ordinary organization role (Batch A2).
+ *
+ * This is ROUTINE administrator management — distinct from the exceptional,
+ * operator-controlled recovery described in docs/ADMINISTRATOR_RECOVERY.md.
+ *
+ * Security structure (server-side; the UI is never authoritative):
+ *  - caller must hold `admin.manage` and resolve an ACTIVE membership;
+ *  - the organization comes only from the access context — the target is
+ *    resolved by id and re-checked against that organization (no tenant
+ *    crossing, no transfers);
+ *  - an administrator can never change their OWN role (no self-escalation,
+ *    no self-lockout);
+ *  - target memberships must be ACTIVE — suspended/deactivated rows are
+ *    managed through the membership lifecycle first;
+ *  - the privileged `admin` role is excluded in BOTH directions: rows that
+ *    already hold it are refused (use revoke/grant), and it can never be the
+ *    requested role. The typed validator rejects any non-ordinary role;
+ *  - a no-op request (same role) is refused instead of writing;
+ *  - a member with an UNEXPIRED PENDING administrator grant is refused: the
+ *    queued grant records the role to restore on revocation, and changing the
+ *    role underneath it would make that restoration stale. Neither grant nor
+ *    invitation rows are ever modified here;
+ *  - the write is a single transaction and appends one immutable audit entry
+ *    separating the ACTOR from the TARGET (with previous → new role).
+ *
+ * Two-step administrator grants and invitation flows are untouched by this
+ * mutation: an accepted administrator grant keeps restoring its recorded
+ * `previousRole`, and pending invitations keep their own recorded role.
+ */
+export const changeMemberRole = mutation({
+  args: {
+    profileId: v.id("userProfiles"),
+    role: initialRoleArg,
+  },
+  handler: async (ctx, args) => {
+    const access = await requirePermission(ctx, "admin.manage");
+    if (!access.organizationId || !access.user) {
+      throw new Error("No organization context");
+    }
+    if (!access.isProvisioned) {
+      throw new Error("Caller membership is not active");
+    }
+
+    // Tenant isolation: id lookup, but the organization match is structural.
+    const target = await ctx.db.get(args.profileId);
+    if (!target || target.organizationId !== access.organizationId) {
+      throw new Error("Member not found in your organization");
+    }
+
+    if (target.userId === access.user._id) {
+      throw new Error("Administrators cannot change their own role");
+    }
+
+    const current = effectiveMembershipStatus(target.membershipStatus);
+    if (current !== "active") {
+      throw new Error(
+        `Membership is ${MEMBERSHIP_STATUS_LABELS[current].toLowerCase()} — reactivate it before changing the role`,
+      );
+    }
+
+    // Administrator status is governed by the two-step lifecycle, never by
+    // this routine role editor (anti self-escalation / anti-lockout).
+    if (target.role === "admin") {
+      throw new Error(
+        "Administrator roles are managed through the administrator lifecycle (grant/revoke), not the role editor",
+      );
+    }
+    if (target.role === args.role) {
+      throw new Error("The member already holds that role");
+    }
+    if (!(PROVISIONABLE_INITIAL_ROLES as readonly string[]).includes(args.role)) {
+      throw new Error("That role cannot be assigned here");
+    }
+
+    // A queued administrator promotion records the role to restore if it is
+    // later revoked. Editing the role underneath it would make that recorded
+    // restoration stale, so the pending grant must be resolved first: this
+    // mutation never touches grant or invitation rows.
+    if (
+      await hasPendingAdministratorGrant(
+        ctx,
+        access.organizationId,
+        target.userId,
+      )
+    ) {
+      throw new Error(
+        "An administrator grant is pending for this member — resolve it (or cancel it) before changing their role",
+      );
+    }
+
+    const previousRole = target.role ?? "member";
+    await ctx.db.patch(target._id, { role: args.role });
+
+    const targetUser = await ctx.db.get(target.userId);
+    const targetLabel = targetUser?.name ?? targetUser?.email ?? "Unknown member";
+    await logAudit(ctx, {
+      organizationId: access.organizationId,
+      userId: target.userId,
+      actorId: access.user._id,
+      actorLabel: access.user.name ?? access.user.email ?? "Administrator",
+      action: "admin.member_role_changed",
+      entityType: "userProfiles",
+      entityId: target._id,
+      summary: `${targetLabel}'s role changed from ${previousRole} to ${args.role} by administrator`,
+    });
+
+    return { ok: true, role: args.role, previousRole };
   },
 });

@@ -66,6 +66,7 @@ IITAMS_BOOTSTRAP_TOKEN="<openssl rand -hex 24>"        # one-time activation sec
 | `IITAMS_BOOTSTRAP_ORG_CODE` | Convex deployment | No (fresh deployments) | One-time administrator bootstrap target organization. |
 | `IITAMS_BOOTSTRAP_ADMIN_EMAIL` | Convex deployment | No (fresh deployments) | Designated first administrator's email identity. |
 | `IITAMS_BOOTSTRAP_TOKEN` | Convex deployment | No (fresh deployments) | High-entropy one-time activation secret (hash-only persistence). |
+| `IITAMS_RECOVERY_ENABLED` | Convex deployment | No | Set to `true` **only** while running the exceptional CLI-only last-administrator recovery, then unset ([`ADMINISTRATOR_RECOVERY.md`](ADMINISTRATOR_RECOVERY.md)). |
 
 ## Precedence & security notes
 

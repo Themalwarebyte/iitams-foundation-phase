@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import {
   Ban,
   MailPlus,
+  UserCog,
   PauseCircle,
   PlayCircle,
   RefreshCw,
@@ -60,6 +61,7 @@ import {
   INVITATION_STATUS_LABELS,
   isValidInvitationEmail,
   MEMBERSHIP_STATUS_LABELS,
+  PROVISIONABLE_INITIAL_ROLES,
   type InvitationStatus,
   type MembershipStatus,
   type ProvisionableInitialRole,
@@ -74,6 +76,7 @@ interface DirectoryRow {
   provisioned: boolean;
   membershipStatus: MembershipStatus;
   jobTitle?: string;
+  createdAt?: number;
   lastSeenAt?: number;
 }
 
@@ -719,6 +722,133 @@ function GrantAdminButton({
 }
 
 /**
+ * Batch A2 — routine role management for an ACTIVE member.
+ *
+ * Only ordinary organization roles are offered (the platform `admin` role is
+ * server-excluded and managed through the grant/revoke lifecycle). The change
+ * requires an explicit confirmation step and is re-validated server-side;
+ * effective permissions are recalculated from the profile on the next session
+ * read, so the member's access reflects the new role immediately.
+ */
+function ChangeRoleButton({
+  row,
+  disabled,
+}: {
+  row: DirectoryRow;
+  disabled?: boolean;
+}) {
+  const changeRole = useMutation(api.admin.changeMemberRole);
+  const [open, setOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [role, setRole] = useState<ProvisionableInitialRole | "">("");
+  const [busy, setBusy] = useState(false);
+
+  const options = PROVISIONABLE_INITIAL_ROLES.filter((r) => r !== row.role);
+
+  async function submit() {
+    if (!role) return;
+    setBusy(true);
+    try {
+      await changeRole({ profileId: row._id as never, role });
+      toast.success(
+        `${row.name} — role changed to ${INITIAL_ROLE_LABELS[role as ProvisionableInitialRole]}.`,
+      );
+      setConfirming(false);
+      setOpen(false);
+      setRole("");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "The role change was refused.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setRole("");
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={disabled || busy}
+          title="Change this member's organization role (server-enforced, audited)"
+        >
+          <UserCog className="size-3.5" aria-hidden />
+          Change role
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Change {row.name}'s role</DialogTitle>
+          <DialogDescription>
+            Currently {roleLabel(row.role)}. The new role replaces the old one
+            immediately and is applied server-side — no other membership field
+            changes. Administrator roles are managed through grant and revoke,
+            not here.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-2">
+          <Label htmlFor={`change-role-${row._id}`}>New organization role</Label>
+          <Select value={role} onValueChange={(v) => setRole(v as ProvisionableInitialRole)}>
+            <SelectTrigger id={`change-role-${row._id}`}>
+              <SelectValue placeholder="Select a role…" />
+            </SelectTrigger>
+            <SelectContent>
+              {options.map((r) => (
+                <SelectItem key={r} value={r}>
+                  {INITIAL_ROLE_LABELS[r]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Changing a role does not touch the member's membership status,
+            invitations or audit history.
+          </p>
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button disabled={!role || busy} onClick={() => setConfirming(true)}>
+            Review change
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+
+      <AlertDialog open={confirming} onOpenChange={setConfirming}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm role change</AlertDialogTitle>
+            <AlertDialogDescription>
+              {row.name} will move from {roleLabel(row.role)} to{" "}
+              {role ? INITIAL_ROLE_LABELS[role as ProvisionableInitialRole] : ""}.
+              Their effective permissions are recalculated on their next
+              session read, and the change is written to the audit trail.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Back</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void submit()} disabled={busy}>
+              Change role
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Dialog>
+  );
+}
+
+/**
  * Batch A1 — administrator lifecycle management (organization-scoped).
  * Pending administrator grants (cancelable) and the organization's active
  * administrators with revoke (previous role restored server-side; the
@@ -938,9 +1068,10 @@ function AdministratorPanel({ canManage }: { canManage: boolean }) {
  * Displays name, email, organization membership, role and the real
  * organization-membership lifecycle status for every provisioned profile in
  * the caller's organization. Administrators holding `admin.manage` may
- * suspend, deactivate and reactivate memberships, and provision existing
- * verified users with an initial role; every control is server-enforced
- * and audited. Role changes after provisioning remain out of scope.
+ * suspend, deactivate and reactivate memberships, provision existing
+ * verified users with an initial role, and change an active member's
+ * ordinary role (never the platform administrator role, which uses the
+ * grant/revoke lifecycle); every control is server-enforced and audited.
  */
 export function AdminUsersPage() {
   const [search, setSearch] = useState("");
@@ -1056,7 +1187,10 @@ export function AdminUsersPage() {
               {r.membershipStatus === "active" &&
                 r.role !== "admin" &&
                 !r.isAnonymous && (
-                  <GrantAdminButton row={r} />
+                  <>
+                    <ChangeRoleButton row={r} disabled={busy} />
+                    <GrantAdminButton row={r} />
+                  </>
                 )}
               {r.membershipStatus === "active" ? (
                 <>
@@ -1120,6 +1254,32 @@ export function AdminUsersPage() {
     return out;
   }, [rows, search, roleFilter, statusFilter]);
 
+  // Render window: the demo organization accumulates thousands of guest
+  // profiles, and rendering every row made this page — and every interaction
+  // on it — pathologically slow. Small directories are unaffected (identical
+  // alphabetical listing). Above the window the most RECENT rows are rendered
+  // — judged by the later of last activity and row creation, so newly
+  // provisioned members and just-active sessions are always visible — and the
+  // header says so, while search and filters keep operating over the FULL
+  // directory. No member is hidden silently.
+  const RENDER_LIMIT = 200;
+  const rendered = useMemo(() => {
+    if (filtered.length <= RENDER_LIMIT) return filtered;
+    const recency = (r: DirectoryRow) =>
+      Math.max(r.lastSeenAt ?? 0, r.createdAt ?? 0);
+    return [...filtered]
+      .sort((a, b) => recency(b) - recency(a))
+      .slice(0, RENDER_LIMIT)
+      // Alphabetical within the window, with equal names ordered by activity
+      // ascending (same tiebreak the full list gets from the index scan), so
+      // the most recently active member of a name group is always last.
+      .sort(
+        (a, b) =>
+          a.name.localeCompare(b.name) ||
+          (a.lastSeenAt ?? 0) - (b.lastSeenAt ?? 0),
+      );
+  }, [filtered]);
+
   return (
     <AdminPageShell
       path="/admin/users"
@@ -1129,6 +1289,13 @@ export function AdminUsersPage() {
       <div className="mb-4 flex items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           {rows?.length ?? "…"} member{rows?.length === 1 ? "" : "s"} in this organization
+          {filtered.length > RENDER_LIMIT && (
+            <span className="text-muted-foreground">
+              {" "}
+              — showing the {RENDER_LIMIT} most recent members; refine with
+              search or filters
+            </span>
+          )}
         </p>
         <AddExistingUserDialog disabled={!canManage} />
       </div>
@@ -1172,7 +1339,7 @@ export function AdminUsersPage() {
           }
         />
       ) : (
-        <DataTable columns={columns} rows={filtered} rowKey={(r) => r._id} />
+        <DataTable columns={columns} rows={rendered} rowKey={(r) => r._id} />
       )}
 
       {/* Batch 2C — organization-scoped invitation management (this org only). */}

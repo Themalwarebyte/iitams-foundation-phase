@@ -238,8 +238,11 @@ describe("IITAMS Phase 3A Batch 2B — member provisioning", () => {
       ).toBe(true);
       await a.page.getByRole("button", { name: "Confirm provisioning" }).click();
 
+      // Generous wait: on the shared dev deployment the provisioning mutation
+      // plus the reactive re-render of the (large) demo directory can take
+      // well over 15s — the toast is the server-success signal, not a UI race.
       expect(
-        await visible(a.page, a.page.getByText(/provisioned with initial role Member/), 15000),
+        await visible(a.page, a.page.getByText(/provisioned with initial role Member/), 45000),
       ).toBe(true);
       // Validation gate: an invalid email is reported before any server call.
       await a.page.getByRole("button", { name: "Add Existing User" }).click();

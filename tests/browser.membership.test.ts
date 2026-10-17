@@ -1,5 +1,9 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { chromium, type Page, type Browser } from "playwright-core";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../src/convex/_generated/api";
 import { grantDemoTestRole, revokeAllEscalatedGuests } from "./e2e-harness";
 
 /**
@@ -10,8 +14,15 @@ import { grantDemoTestRole, revokeAllEscalatedGuests } from "./e2e-harness";
  *  1. Session A signs in as an ordinary guest; the trusted test runner grants
  *     the demo platform-admin TEST role via the token-guarded server-side
  *     harness (never through the browser; revoked on teardown).
- *  2. Session B signs in as a plain guest — a real MEMBER of the demo
- *     organization (provisioned through the audited joinDemo path).
+ *  2. Session B is a real MEMBER of the demo organization. The member under
+ *     test is a seeded, email-verified identity provisioned into the demo
+ *     organization through the authorized backend path: the shared demo
+ *     directory accumulates thousands of anonymous guests that all render
+ *     with the same display name ("Unnamed user"), so a guest row cannot be
+ *     addressed deterministically at scale — the member's own email is the
+ *     only stable, uniquely searchable identifier. Guest-specific behaviour
+ *     (demo join, escalation guards) is covered by the smoke, demo-role and
+ *     effective-membership suites.
  *
  * Coverage:
  *  - the User Directory shows the real membership status (chip) per member;
@@ -148,6 +159,128 @@ async function becomeDemoAdmin(page: Page): Promise<boolean> {
   return await grantDemoTestRole(page, "admin");
 }
 
+const CONVEX_URL = process.env.VITE_CONVEX_URL ?? "http://127.0.0.1:3210";
+const HARNESS_URL =
+  process.env.VITE_CONVEX_SITE_URL ?? "http://127.0.0.1:3211";
+
+function testerToken(): string {
+  const fromEnv = process.env.IITAMS_TESTER_TOKEN;
+  if (fromEnv && fromEnv.trim()) return fromEnv.trim();
+  try {
+    return readFileSync(join(process.cwd(), ".iitams-tester-token"), "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+/** Explicit fixture registry: only emails this file created are ever named. */
+const fixtureEmails = new Set<string>();
+
+async function harnessPost(
+  path: string,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  return await fetch(`${HARNESS_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-iitams-tester-token": testerToken(),
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+/** Trusted-runner admin session (guest + harness demo grant). */
+async function harnessAdminClient(): Promise<ConvexHttpClient | null> {
+  if (!testerToken()) return null;
+  const guest = new ConvexHttpClient(CONVEX_URL);
+  const r = (await (guest as unknown as {
+    action: (ref: unknown, args: Record<string, unknown>) => Promise<unknown>;
+  }).action(api.auth.signIn, { provider: "anonymous", params: {} })) as {
+    tokens?: { token?: string };
+  };
+  if (r.tokens?.token) {
+    (guest as unknown as { setAuth: (v: string) => void }).setAuth(r.tokens.token);
+  }
+  await guest.mutation(api.session.joinDemoOrganization, {});
+  const session = (await guest.query(api.session.getSession, {})) as {
+    userId?: string;
+  } | null;
+  if (!session?.userId) return null;
+  const res = await harnessPost("/api/dev-grant-demo-role", {
+    userId: session.userId,
+    role: "admin",
+    ttlMinutes: 120,
+  });
+  if (!res.ok) return null;
+  return guest;
+}
+
+/** Real email-OTP sign-in through the existing auth page (code retrieved by
+ * the TRUSTED RUNNER from the token-guarded harness, never from the page). */
+async function signInViaEmailOtp(
+  page: Page,
+  email: string,
+  returnTo: string,
+): Promise<{ ok: boolean; reason?: string }> {
+  await page.goto(`${BASE}/auth?returnTo=${encodeURIComponent(returnTo)}`, {
+    waitUntil: "domcontentloaded",
+  });
+  const emailInput = page.locator('input[name="email"]');
+  if (!(await visible(page, emailInput, 10000))) {
+    return { ok: false, reason: "auth email form not visible" };
+  }
+  await emailInput.fill(email);
+  await page.getByRole("button", { name: /Send verification code/i }).click();
+
+  let code: string | null = null;
+  for (let i = 0; i < 12; i++) {
+    await page.waitForTimeout(1500);
+    const res = await harnessPost("/api/dev-otp", { email });
+    if (res.ok) {
+      const data = (await res.json()) as { code?: string };
+      if (data.code && /^\d{6}$/.test(data.code)) {
+        code = data.code;
+        break;
+      }
+    }
+  }
+  if (!code) return { ok: false, reason: "OTP code not retrievable via harness" };
+
+  const headline = page.getByText(/We've sent a code/i);
+  if (!(await visible(page, headline, 12000))) {
+    return { ok: false, reason: "OTP step not visible after code send" };
+  }
+  const otpGroup = page.locator('[data-slot="input-otp"]').first();
+  await otpGroup.click();
+  await page.keyboard.type(code, { delay: 80 });
+  await page.getByRole("button", { name: /Verify code/i }).click();
+  await page.waitForURL("**/dashboard", { timeout: 25000 }).catch(() => undefined);
+  return { ok: true };
+}
+
+/** The page's own resolved session state (read-only QA bridge). */
+async function sessionInfo(page: Page): Promise<{
+  isProvisioned?: boolean;
+  awaitingProvisioning?: boolean;
+  membershipStatus?: string;
+  organization?: { id?: string } | null;
+  role?: string | null;
+} | null> {
+  return await page.evaluate(async () => {
+    const qa = (
+      window as unknown as {
+        __IITAMS_DEV_QA__?: { whoAmI(): Promise<unknown> };
+      }
+    ).__IITAMS_DEV_QA__;
+    try {
+      return (await qa?.whoAmI()) as never;
+    } catch {
+      return null;
+    }
+  });
+}
+
 describe("IITAMS Phase 3A Batch 2A — membership lifecycle", () => {
   test(
     "member loses organization access immediately on suspension and regains it on reactivation",
@@ -155,9 +288,34 @@ describe("IITAMS Phase 3A Batch 2A — membership lifecycle", () => {
       requireEnv();
       if (!serverUp || !browser) return;
 
+      // --- Fixture: the member under test (seeded, verified, provisioned) --
+      const suffix = `${Date.now()}-${Math.floor(Math.random() * 99999)}`;
+      const memberEmail = `membership-${suffix}@check.example`;
+      const fixtureAdmin = await harnessAdminClient();
+      if (!fixtureAdmin) {
+        if (SOFT) {
+          console.warn("[e2e:SKIPPED] trusted-runner admin session unavailable");
+          return;
+        }
+        throw new Error("E2E GATE FAILED: trusted-runner admin session unavailable");
+      }
+      await harnessPost("/api/dev-seed-test-user", { email: memberEmail });
+      fixtureEmails.add(memberEmail);
+      const provisioned = (await fixtureAdmin.mutation(api.admin.provisionMember, {
+        email: memberEmail,
+        initialRole: "auditor",
+      })) as { ok?: boolean; profileId?: string };
+      if (!provisioned.ok) {
+        if (SOFT) {
+          console.warn("[e2e:SKIPPED] member provisioning unavailable");
+          return;
+        }
+        throw new Error("E2E GATE FAILED: member provisioning unavailable");
+      }
+
       // --- Session B: the member under test -------------------------------
       const b = await newPage();
-      const signInB = await signInAsGuest(b.page);
+      const signInB = await signInViaEmailOtp(b.page, memberEmail, "/dashboard");
       if (!signInB.ok) {
         if (SOFT) {
           console.warn(`[e2e:SKIPPED] member session: ${signInB.reason}`);
@@ -167,9 +325,18 @@ describe("IITAMS Phase 3A Batch 2A — membership lifecycle", () => {
         throw new Error(`E2E GATE FAILED: member session — ${signInB.reason}`);
       }
       // Established org context before the lifecycle change.
-      expect(
-        await visible(b.page, b.page.getByText("IITAMS Demo MDAC").first(), 15000),
-      ).toBe(true);
+      if (
+        !(await visible(
+          b.page,
+          b.page.getByRole("heading", { name: "Executive Dashboard" }),
+          30000,
+        ))
+      ) {
+        const state = await sessionInfo(b.page);
+        throw new Error(
+          `E2E GATE FAILED: member session did not reach the dashboard — session=${JSON.stringify(state)}`,
+        );
+      }
 
       // --- Session A: administrator ---------------------------------------
       const a = await newPage();
@@ -203,17 +370,26 @@ describe("IITAMS Phase 3A Batch 2A — membership lifecycle", () => {
         .getByRole("heading", { name: "Users" })
         .waitFor({ state: "visible", timeout: 20000 });
 
-      // B's directory row: a Member whose "Last seen" is seconds old (its
-      // provisioning just happened; historical test guests show minutes/days).
+      // B's directory row is addressed by B's OWN email — the only stable,
+      // unique identifier in a directory that also holds thousands of
+      // anonymous guests sharing the display name "Unnamed user". The
+      // directory search narrows the rendered rows to this member.
       // Chip text renders as "Active status" — match non-exactly.
-      const memberRow = a.page
-        .locator("tbody tr")
-        .filter({ hasText: "Member" })
-        .filter({ hasText: /second[s]? ago/ })
-        // Rows with identical names keep creation order (by-organization index
-        // scan) — the freshly provisioned member is the newest row.
-        .last();
-      expect(await visible(a.page, memberRow, 20000)).toBe(true);
+      // NOTE: the row locator must NOT depend on the Suspend button — that
+      // button becomes Reactivate after suspension, which would detach the
+      // locator and hide the reactive status change we assert next.
+      await a.page
+        .getByPlaceholder("Search by name, email or job title…")
+        .fill(memberEmail);
+      const memberRow = a.page.locator("tbody tr").filter({ hasText: memberEmail }).first();
+      expect(await visible(a.page, memberRow, 25000)).toBe(true);
+      expect(
+        await visible(
+          a.page,
+          memberRow.getByRole("button", { name: "Suspend" }),
+          10000,
+        ),
+      ).toBe(true);
       expect(
         await visible(a.page, memberRow.getByText("Active").first(), 10000),
       ).toBe(true);
@@ -232,9 +408,25 @@ describe("IITAMS Phase 3A Batch 2A — membership lifecycle", () => {
 
       // IMMEDIATE ACCESS DENIAL in the member's live session (server-enforced
       // via resolveAccess): B's org context disappears and the shell falls
-      // back to the safe no-tenant provisioning state.
+      // back to the safe no-tenant state for a non-guest account.
+      const suspended = await (async () => {
+        for (let i = 0; i < 20; i++) {
+          const state = await sessionInfo(b.page);
+          if (state && state.isProvisioned === false) return state;
+          await b.page.waitForTimeout(1000);
+        }
+        return await sessionInfo(b.page);
+      })();
+      expect(suspended?.isProvisioned).toBe(false);
+      expect(suspended?.awaitingProvisioning).toBe(true);
+      expect(suspended?.membershipStatus).toBe("suspended");
+      expect(suspended?.organization ?? null).toBeNull();
       expect(
-        await visible(b.page, b.page.getByText("Preparing your demo workspace"), 20000),
+        await visible(
+          b.page,
+          b.page.getByText("Account awaiting provisioning").first(),
+          20000,
+        ),
       ).toBe(true);
       expect(
         await visible(
@@ -254,6 +446,15 @@ describe("IITAMS Phase 3A Batch 2A — membership lifecycle", () => {
       ).toBe(true);
 
       // The member's session regains its organization context automatically.
+      const regained = await (async () => {
+        for (let i = 0; i < 25; i++) {
+          const state = await sessionInfo(b.page);
+          if (state && state.isProvisioned === true) return state;
+          await b.page.waitForTimeout(1000);
+        }
+        return await sessionInfo(b.page);
+      })();
+      expect(regained?.isProvisioned).toBe(true);
       if (!(await visible(b.page, b.page.getByText("IITAMS Demo MDAC").first(), 25000))) {
         // Diagnose instead of failing anonymously: the live session state, the
         // rendered body and any page errors distinguish a reactivity defect
@@ -312,16 +513,38 @@ describe("IITAMS Phase 3A Batch 2A — membership lifecycle", () => {
         .waitFor({ state: "visible", timeout: 20000 });
 
       // Isolate this session's OWN row: the platform-admin role plus a
-      // "seconds ago" last-seen — the trusted-runner grant patches the
-      // target's lastSeenAt, so only this session's row is seconds old while
-      // historical test profiles show minutes/days.
-      const adminRow = a.page
+      // "seconds ago" last-seen. The grant is RE-ISSUED here, after the
+      // directory has rendered, because the trusted-runner grant is what
+      // patches the target's lastSeenAt: signing in, navigating and waiting
+      // for the table can take longer than the 60s the relative label needs
+      // before it would read "a minute ago" (the old, timing-dependent
+      // failure mode). A refresh makes this session's row the newest
+      // fresh-second row in creation order.
+      if (!(await becomeDemoAdmin(a.page))) {
+        if (SOFT) {
+          console.warn("[e2e:SKIPPED] self-refusal: fresh grant unavailable");
+          await a.page.close();
+          return;
+        }
+        throw new Error("E2E GATE FAILED: self-refusal — fresh grant unavailable");
+      }
+      const freshAdminRow = a.page
         .locator("tbody tr")
         .filter({ hasText: "Administrator" })
         .filter({ hasText: /second[s]? ago/ })
         // Newest row = this session's just-escalated profile (creation order).
         .last();
-      expect(await visible(a.page, adminRow, 10000)).toBe(true);
+      expect(await visible(a.page, freshAdminRow, 20000)).toBe(true);
+      // Pin the row by DOM position before interacting: the "seconds ago"
+      // label is the identification signal, but it turns into "a minute ago"
+      // as the run proceeds, which would silently detach a text-filtered
+      // locator mid-interaction.
+      const adminRowIndex = await freshAdminRow.evaluate((el) =>
+        Array.from(el.parentElement?.children ?? []).indexOf(el as Element),
+      );
+      expect(adminRowIndex).toBeGreaterThanOrEqual(0);
+      const adminRow = a.page.locator("tbody tr").nth(adminRowIndex);
+      expect(await adminRow.innerText()).toContain("Administrator");
 
       await adminRow.getByRole("button", { name: "Suspend" }).click();
       expect(
@@ -330,6 +553,10 @@ describe("IITAMS Phase 3A Batch 2A — membership lifecycle", () => {
           a.page.getByText(/Administrators cannot change their own membership status/),
           15000,
         ),
+      ).toBe(true);
+      // Nothing changed: the refusal is server-side, not a UI-only guard.
+      expect(
+        await visible(a.page, adminRow.getByText("Active").first(), 10000),
       ).toBe(true);
 
       expect(a.errors, `page errors: ${a.errors.join(" | ")}`).toHaveLength(0);

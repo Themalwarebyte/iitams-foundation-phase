@@ -120,6 +120,30 @@ async function userDoc(
   return await ctx.db.get(userId);
 }
 
+/**
+ * True when an UNEXPIRED, PENDING administrator grant exists for the target in
+ * this organization. Routine role editing consults this so a role change can
+ * never make a queued promotion's recorded previousRole stale — the grant row
+ * itself is never modified by routine role management (invitations and the
+ * administrator lifecycle stay untouched).
+ */
+export async function hasPendingAdministratorGrant(
+  ctx: MutationCtx,
+  organizationId: Id<"organizations">,
+  targetUserId: Id<"users">,
+): Promise<boolean> {
+  const rows = await ctx.db
+    .query("administratorGrants")
+    .withIndex("by_target_status", (q) =>
+      q.eq("targetUserId", targetUserId).eq("status", "pending"),
+    )
+    .collect();
+  const now = Date.now();
+  return rows.some(
+    (r) => r.organizationId === organizationId && r.expiresAt > now,
+  );
+}
+
 /** The latest ACCEPTED lifecycle grant for a promotion of `targetUserId`. */
 async function activeGrantFor(
   ctx: MutationCtx,
@@ -862,5 +886,105 @@ export const expireDueGrants = internalMutation({
       expired += 1;
     }
     return { expired };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 6) Exceptional, operator-controlled administrator recovery (CLI ONLY)
+// ---------------------------------------------------------------------------
+
+/**
+ * Recover an organization that has lost every administrator.
+ *
+ * This is NOT a routine administrator action and NOT a public endpoint:
+ *  - it is an INTERNAL mutation, so Convex exposes it only on the deployment
+ *    control path (`npx convex run` with deployment credentials). It is not
+ *    reachable from the browser, the HTTP router, or any authenticated
+ *    client — no emergency role-grant API exists;
+ *  - it additionally requires an explicit operator opt-in on the deployment:
+ *    `IITAMS_RECOVERY_ENABLED=true`. Unset (the default) means recovery is
+ *    disabled everywhere;
+ *  - it refuses unless the organization has ZERO effective administrators
+ *    (same shared count used by suspend/deactivate/revoke) — it can never be
+ *    used to add an extra administrator while governance is intact;
+ *  - the target must be a real, non-anonymous account with a VERIFIED email
+ *    and an ACTIVE membership in that organization; nothing is created, no
+ *    invitation or bootstrap restriction is bypassed;
+ *  - the write and the immutable audit entry happen in one transaction, and
+ *    the audit actor is labelled as the deployment operator so the
+ *    out-of-band action is never confused with an in-app decision.
+ *
+ * The one-time bootstrap (claimInitialAdministrator) is unchanged and remains
+ * the normal first-administrator path; this function exists only for the case
+ * where that path was consumed and every administrator was later lost.
+ */
+export const recoverOrganizationAdministrator = internalMutation({
+  args: {
+    organizationCode: v.string(),
+    email: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (process.env.IITAMS_RECOVERY_ENABLED !== "true") {
+      throw new Error("Operator recovery is not enabled on this deployment");
+    }
+
+    const organizationCode = args.organizationCode.trim();
+    const email = normalizeInvitationEmail(args.email);
+    if (!organizationCode || !email) {
+      throw new Error("organizationCode and email are required");
+    }
+
+    const org = await ctx.db
+      .query("organizations")
+      .withIndex("code", (q) => q.eq("code", organizationCode))
+      .unique();
+    if (!org) throw new Error("Unknown organization code");
+
+    if ((await countActiveAdministrators(ctx, org._id)) > 0) {
+      throw new Error(
+        "Recovery refused: this organization still has an effective administrator — use the in-app administrator lifecycle",
+      );
+    }
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", email))
+      .unique();
+    if (!user || user.isAnonymous === true || !user.emailVerificationTime) {
+      throw new Error(
+        "Recovery target must be an existing account with a verified email",
+      );
+    }
+
+    const profile = await ctx.db
+      .query("userProfiles")
+      .withIndex("userId", (q) => q.eq("userId", user._id))
+      .unique();
+    if (!profile || profile.organizationId !== org._id) {
+      throw new Error("Recovery target is not a member of this organization");
+    }
+    if (effectiveMembershipStatus(profile.membershipStatus) !== "active") {
+      throw new Error("Recovery target's membership is not active");
+    }
+    if (profile.role === ADMIN_ROLE) {
+      throw new Error("Recovery target already holds the administrator role");
+    }
+
+    const previousRole = profile.role ?? "member";
+    await ctx.db.patch(profile._id, { role: ADMIN_ROLE });
+
+    const targetLabel = user.name ?? user.email ?? "Organization member";
+    await logAudit(ctx, {
+      organizationId: org._id,
+      userId: user._id,
+      actorId: undefined,
+      actorLabel: "Deployment operator (CLI recovery)",
+      action: "admin.administrator_recovered",
+      entityType: "userProfiles",
+      entityId: profile._id,
+      summary: `${targetLabel} promoted to administrator by out-of-band operator recovery (previous role ${previousRole}); organization had no effective administrator`,
+    });
+
+    return { ok: true as const, profileId: profile._id, previousRole };
   },
 });
