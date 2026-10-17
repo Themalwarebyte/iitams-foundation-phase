@@ -156,6 +156,39 @@ export const ensureTenantFixtures = internalMutation({
       });
     }
 
+    // Tenant B also carries an overdue-review fixture so the review-overdue
+    // indicator can be verified against real data. Tenant A deliberately has
+    // none, which lets the test prove the count does not leak across tenants.
+    const tenantB = organizations.find((o) => o.organizationCode === "IITAMS-TEST-B");
+    if (tenantB) {
+      const existingOverdue = await ctx.db
+        .query("risks")
+        .withIndex("by_organization_code", (q) =>
+          q
+            .eq("organizationId", tenantB.organizationId as never)
+            .eq("code", "R-002"),
+        )
+        .unique();
+      if (!existingOverdue) {
+        await ctx.db.insert("risks", {
+          organizationId: tenantB.organizationId as never,
+          code: "R-002",
+          title: "Tenant B overdue review fixture risk",
+          category: "Process",
+          inherentLikelihood: 3,
+          inherentImpact: 4,
+          residualLikelihood: 3,
+          residualImpact: 3,
+          status: "assessing",
+          ownerName: "Fixture owner",
+          reviewDue: now - 10 * 24 * 60 * 60 * 1000,
+          isDemo: true,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+
     return { organizations };
   },
 });

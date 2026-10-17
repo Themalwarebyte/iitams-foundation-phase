@@ -708,6 +708,39 @@ const schema = defineSchema(
       .index("by_organization_code", ["organizationId", "code"]),
 
     // ------------------------------------------------------------------
+    // ICT RISK ASSESSMENTS (Phase 3B — Batch 2A)
+    // ------------------------------------------------------------------
+    // Structured assessment snapshots for a risk. Rows are INSERT-ONLY: an
+    // assessment records the factors, controls considered, justification and
+    // next review date as they were at that moment, and later re-assessments
+    // never modify earlier evidence. Current register scores live on `risks`
+    // and are updated in the same transaction that appends an assessment.
+    riskAssessments: defineTable({
+      organizationId: v.id("organizations"),
+      riskId: v.id("risks"),
+      assessmentDate: v.number(),
+      assessorUserId: v.id("users"),
+      assessorLabel: v.string(),
+      inherentLikelihood: v.number(),
+      inherentImpact: v.number(),
+      residualLikelihood: v.number(),
+      residualImpact: v.number(),
+      // Snapshot of the register's residual score BEFORE this assessment, so
+      // the UI can compare without trusting client-supplied history.
+      previousResidualScore: v.number(),
+      previousResidualBand: v.string(),
+      controlsConsidered: v.optional(v.string()),
+      justification: v.string(),
+      observations: v.optional(v.string()),
+      nextReviewDate: v.number(),
+      isDemo: v.optional(v.boolean()),
+      createdAt: v.number(),
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_risk", ["riskId"])
+      .index("by_organization_risk", ["organizationId", "riskId"]),
+
+    // ------------------------------------------------------------------
     // COMPLIANCE MANAGEMENT
     // ------------------------------------------------------------------
     complianceFrameworks: defineTable({

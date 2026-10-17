@@ -170,7 +170,21 @@ describe("IITAMS risk register (browser)", () => {
         await visible(page.getByRole("button", { name: "Edit risk" }), 10000),
       ).toBe(true);
 
-      // 6. Dialog closes back to the register without a page error.
+      // 6. Record a structured assessment from the detail dialog: the form
+      //    validates client-side, the server applies it to the register and the
+      //    immutable assessment appears in the history.
+      await page.getByRole("button", { name: "Record assessment" }).click();
+      const justification = page.locator("#assess-justification");
+      expect(await visible(justification, 10000)).toBe(true);
+      const justificationText = `Browser assessment ${Date.now()} confirms controls`;
+      await justification.fill(justificationText);
+      await page.getByRole("button", { name: "Save assessment" }).click();
+      expect(await visible(page.getByText(justificationText).first(), 20000)).toBe(true);
+      expect(
+        await visible(page.getByText(/risk assessments/i).first(), 10000),
+      ).toBe(true);
+
+      // 7. Dialog closes back to the register without a page error.
       await page.keyboard.press("Escape");
       expect(
         await visible(page.getByRole("heading", { name: "Risk Register" }), 10000),
@@ -207,6 +221,12 @@ describe("IITAMS risk register (browser)", () => {
       expect(await visible(page.getByRole("dialog"), 15000)).toBe(true);
       expect(
         await visible(page.getByRole("button", { name: "Edit risk" }), 2000),
+      ).toBe(false);
+      expect(
+        await visible(
+          page.getByRole("button", { name: "Record assessment" }),
+          2000,
+        ),
       ).toBe(false);
 
       expect(errors, `page errors: ${errors.join(" | ")}`).toHaveLength(0);

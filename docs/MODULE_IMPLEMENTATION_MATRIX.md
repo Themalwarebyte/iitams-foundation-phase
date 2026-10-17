@@ -6,7 +6,11 @@
 
 ## 1. Exact schema inventory (verified programmatically)
 
-**Total tables: 24** — 7 platform + 17 domain.
+**Total tables: 41** — 7 Convex Auth platform tables + **34** defined in
+`src/convex/schema.ts`. The inventory below enumerates the tenancy root, the
+original domain tables and the tables added by later batches (e.g.
+`riskAssessments`); Phase-2 workflow tables are detailed in
+`docs/PHASE_2_DATA_MODEL.md`.
 
 ### Platform / global (7) — provided by Convex Auth
 
@@ -20,7 +24,7 @@
 | `authVerifiers` | Verifier challenge records (convex-auth internal) | `signature` |
 | `users` | Identity records (name, email, isAnonymous, role) | `email` |
 
-### Domain (17) — tenant-scoped by `organizationId` unless noted
+### Domain (18) — tenant-scoped by `organizationId` unless noted
 
 | Table | Purpose | Indexes |
 | --- | --- | --- |
@@ -32,6 +36,7 @@
 | `findings` | Audit findings with severity/status/due dates | `by_organization`, `by_status`, `by_severity` |
 | `correctiveActions` | Remediation tracking per finding (owner, due, status) | `by_organization`, `by_status` |
 | `risks` | ICT risk register: 5×5 inherent/residual likelihood × impact; org-scoped `R-###` identifier | `by_organization`, `by_status`, `by_organization_code` |
+| `riskAssessments` | Insert-only risk assessment snapshots (factors, controls, justification, next review) | `by_organization`, `by_risk`, `by_organization_risk` |
 | `riskTrendSnapshots` | Quarterly pre-aggregated risk trend series | `by_organization` |
 | `complianceFrameworks` | Frameworks with implemented/total controls and scores | `by_organization` |
 | `controls` | Control library with effectiveness states | `by_organization`, `by_effectiveness` |
@@ -42,7 +47,7 @@
 | `notifications` | **Mixed scope:** user-scoped or org-wide | `by_user`, `by_organization` |
 | `auditLogs` | Append-only activity/audit trail — **mixed scope** | `by_organization`, `by_organization_entity` |
 
-**Tenant-scoped:** 13 tables (those with a `by_organization` index).
+**Tenant-scoped:** 14 tables (those with a `by_organization` index).
 **User-scoped:** `userProfiles`; the user-facing slice of `notifications`.
 **Platform/global:** the 7 platform tables, plus `organizations` (tenancy
 root) and the org-wide slice of `notifications`/`auditLogs`.

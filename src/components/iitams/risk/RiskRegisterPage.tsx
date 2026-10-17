@@ -6,6 +6,7 @@ import { AppLayout } from "@/components/iitams/AppLayout";
 import { Breadcrumbs, PageHeader } from "@/components/iitams/PageHeader";
 import { EmptyState, ListSkeleton } from "@/components/iitams/audit/ListPageShell";
 import { RiskScoreBadge, StatusChip } from "@/components/iitams/badges";
+import { RiskAssessments } from "./RiskAssessments";
 import { KpiCard } from "@/components/iitams/KpiCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -585,6 +586,11 @@ function RiskDetailDialog({
                 </div>
               ))}
             </dl>
+
+            <RiskAssessments
+              riskId={detail._id as Id<"risks">}
+              canManage={canManage}
+            />
 
             {detail.history.length > 0 && (
               <details className="text-xs text-muted-foreground">

@@ -257,4 +257,51 @@ describe("Risk register — cross-tenant isolation (two real organizations)", ()
     },
     120000,
   );
+
+  test(
+    "assessment history and overdue reviews never leak across organizations",
+    async () => {
+      if (!fixtureA || !fixtureB || !clientA || !clientB) {
+        throw new Error("[test:PREREQ-FAILED] tenant fixtures or OTP sign-in unavailable");
+      }
+
+      // Reads of another tenant's assessment history resolve to null.
+      expect(
+        await clientA.query(api.riskAssessments.listForRisk, {
+          riskId: fixtureB!.riskId as never,
+        }),
+      ).toBeNull();
+      expect(
+        await clientB.query(api.riskAssessments.listForRisk, {
+          riskId: fixtureA!.riskId as never,
+        }),
+      ).toBeNull();
+
+      // Recording an assessment against a foreign risk id is refused.
+      await expect(
+        clientA.mutation(api.riskAssessments.createAssessment, {
+          riskId: fixtureB!.riskId as never,
+          assessmentDate: Date.now(),
+          inherentLikelihood: 5,
+          inherentImpact: 5,
+          residualLikelihood: 5,
+          residualImpact: 5,
+          justification: "Cross-tenant assessment attempt must be refused",
+          nextReviewDate: Date.now() + 30 * DAY,
+        }),
+      ).rejects.toThrow(/not found in your organization/i);
+
+      // Overdue review identification is organization-scoped: tenant B has an
+      // overdue fixture, tenant A has none.
+      const aSummary = (await clientA.query(api.risks.riskSummary, {})) as {
+        overdueReviews: number;
+      };
+      const bSummary = (await clientB.query(api.risks.riskSummary, {})) as {
+        overdueReviews: number;
+      };
+      expect(aSummary.overdueReviews).toBe(0);
+      expect(bSummary.overdueReviews).toBeGreaterThanOrEqual(1);
+    },
+    120000,
+  );
 });
