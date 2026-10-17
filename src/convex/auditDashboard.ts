@@ -8,6 +8,18 @@ import { ENGAGEMENT_ORDER, type EngagementStatus } from "../lib/auditWorkflow";
  * dashboard: universe size, coverage, planned/completed/delayed audits,
  * findings load and overdue actions, plus workload by lifecycle stage.
  */
+/**
+ * Per-table read cap for the dashboard metrics.
+ *
+ * Each of the six inputs is a full organization scan; on a long-lived demo
+ * deployment those tables grow and the query eventually exceeds Convex's
+ * per-function read/execution budget — the dashboard then fails with a server
+ * error for every viewer (including guests). Reads are therefore bounded, and
+ * `sampled` reports honestly when a metric set was capped instead of silently
+ * presenting a truncated sample as the complete picture.
+ */
+const METRICS_ROW_CAP = 500;
+
 export const overview = query({
   args: {},
   handler: async (ctx) => {
@@ -22,38 +34,46 @@ export const overview = query({
           .withIndex("by_organization", (q) =>
             q.eq("organizationId", access.organizationId!),
           )
-          .collect(),
+          .take(METRICS_ROW_CAP),
         ctx.db
           .query("auditPlans")
           .withIndex("by_organization", (q) =>
             q.eq("organizationId", access.organizationId!),
           )
-          .collect(),
+          .take(METRICS_ROW_CAP),
         ctx.db
           .query("auditPlanItems")
           .withIndex("by_organization", (q) =>
             q.eq("organizationId", access.organizationId!),
           )
-          .collect(),
+          .take(METRICS_ROW_CAP),
         ctx.db
           .query("auditEngagements")
           .withIndex("by_organization", (q) =>
             q.eq("organizationId", access.organizationId!),
           )
-          .collect(),
+          .take(METRICS_ROW_CAP),
         ctx.db
           .query("findings")
           .withIndex("by_organization", (q) =>
             q.eq("organizationId", access.organizationId!),
           )
-          .collect(),
+          .take(METRICS_ROW_CAP),
         ctx.db
           .query("correctiveActions")
           .withIndex("by_organization", (q) =>
             q.eq("organizationId", access.organizationId!),
           )
-          .collect(),
+          .take(METRICS_ROW_CAP),
       ]);
+
+    const sampled =
+      universe.length === METRICS_ROW_CAP ||
+      plans.length === METRICS_ROW_CAP ||
+      planItems.length === METRICS_ROW_CAP ||
+      engagements.length === METRICS_ROW_CAP ||
+      findings.length === METRICS_ROW_CAP ||
+      actions.length === METRICS_ROW_CAP;
 
     const activeUniverse = universe.filter(
       (u) => (u.status ?? "active") !== "archived",
@@ -114,6 +134,8 @@ export const overview = query({
 
     return {
       isDemoData: anyDemo,
+      sampled,
+      sampleCap: METRICS_ROW_CAP,
       generatedAt: now,
       universe: {
         total: activeUniverse.length,
