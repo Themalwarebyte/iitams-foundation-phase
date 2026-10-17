@@ -1066,7 +1066,9 @@ describe("Batch A1 — administrator lifecycle (runtime boundary)", () => {
         body: JSON.stringify({
           userId: shortSession.userId,
           role: "admin",
-          ttlMinutes: 1 / 60, // one second: expires immediately
+          // Short but not razor-thin: the grant must still be live when the
+          // very next directory query runs, even on a loaded CI host.
+          ttlMinutes: 2 / 60, // two seconds: expires immediately after
         }),
       });
       expect(grantRes.ok).toBe(true);
@@ -1081,7 +1083,7 @@ describe("Batch A1 — administrator lifecycle (runtime boundary)", () => {
       // sweep, which runs `expireDemoTestGrants` before every grant) both
       // advances the clock and persists the expired grant's revert. Trigger it
       // via a benign harness call for a fresh throwaway guest.
-      await new Promise((r) => setTimeout(r, 1400)); // the demo grant expired (wall time)
+      await new Promise((r) => setTimeout(r, 3000)); // the demo grant expired (wall time)
       const sweepRes = await fetch(`${HARNESS}/api/dev-grant-demo-role`, {
         method: "POST",
         headers: {
