@@ -67,6 +67,12 @@ IITAMS_BOOTSTRAP_TOKEN="<openssl rand -hex 24>"        # one-time activation sec
 | `IITAMS_BOOTSTRAP_ADMIN_EMAIL` | Convex deployment | No (fresh deployments) | Designated first administrator's email identity. |
 | `IITAMS_BOOTSTRAP_TOKEN` | Convex deployment | No (fresh deployments) | High-entropy one-time activation secret (hash-only persistence). |
 | `IITAMS_RECOVERY_ENABLED` | Convex deployment | No | Set to `true` **only** while running the exceptional CLI-only last-administrator recovery, then unset ([`ADMINISTRATOR_RECOVERY.md`](ADMINISTRATOR_RECOVERY.md)). |
+| `IITAMS_EMAIL_PROVIDER` | Convex deployment | No | `resend` enables real OTP email delivery; unset means codes are not emailed ([`PREVIEW_OWNER_ACCESS.md`](PREVIEW_OWNER_ACCESS.md)). |
+| `RESEND_API_KEY` | Convex deployment | No | Resend API key (secret; deployment environment only). |
+| `RESEND_FROM` | Convex deployment | No | Verified Resend sender, e.g. `IITAMS <no-reply@your-domain>`. |
+| `SITE_URL` | Convex deployment | No | Public application origin used in invitation/acceptance links. |
+| `IITAMS_OWNER_PROVISIONING_ENABLED` | Convex deployment | No | Set to `true` **only** while running the documented non-production preview-owner procedure, then unset. |
+| `IITAMS_OWNER_PROVISIONING_TOKEN` | Convex deployment | No | High-entropy one-shot operator token for that procedure (unset afterwards). |
 
 ## Precedence & security notes
 
