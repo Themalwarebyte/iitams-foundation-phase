@@ -102,6 +102,11 @@ const AdminRolesPage = lazy(() =>
     default: m.AdminRolesPage,
   })),
 );
+const AdminAccessReviewsPage = lazy(() =>
+  import("./components/iitams/admin/AdminAccessReviewsPage").then((m) => ({
+    default: m.AdminAccessReviewsPage,
+  })),
+);
 const AdminAuditLogsPage = lazy(() =>
   import("./components/iitams/admin/AdminAuditLogsPage").then((m) => ({
     default: m.AdminAuditLogsPage,
@@ -330,6 +335,16 @@ createRoot(document.getElementById("root")!).render(
                   <AdminRoute>
                     <AdminGate path="/admin/roles">
                       <AdminRolesPage />
+                    </AdminGate>
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/admin/access-reviews"
+                element={
+                  <AdminRoute>
+                    <AdminGate path="/admin/access-reviews">
+                      <AdminAccessReviewsPage />
                     </AdminGate>
                   </AdminRoute>
                 }

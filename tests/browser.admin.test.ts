@@ -246,6 +246,16 @@ describe("IITAMS Phase 3A administration", () => {
       ).toBe(true);
       expect(await visible(page, page.getByText("admin.view", { exact: true }), 15000)).toBe(true);
 
+      // Access reviews (Phase 3A — Batch A3)
+      await page.getByRole("link", { name: "Access Reviews" }).first().click();
+      await page.waitForURL("**/admin/access-reviews");
+      expect(
+        await visible(page, page.getByRole("heading", { name: "Access Reviews" }), 20000),
+      ).toBe(true);
+      expect(
+        await visible(page, page.getByRole("button", { name: "New review cycle" }), 15000),
+      ).toBe(true);
+
       // Audit logs
       await page.getByRole("link", { name: "Audit Logs" }).first().click();
       await page.waitForURL("**/admin/audit-logs");

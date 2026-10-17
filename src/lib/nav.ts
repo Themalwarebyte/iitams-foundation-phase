@@ -152,6 +152,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Organizations / MDACs", path: "/admin/organizations", icon: Building2, permission: "admin" },
       { label: "Users", path: "/admin/users", icon: Users, permission: "admin" },
       { label: "Roles & Permissions", path: "/admin/roles", icon: KeyRound, permission: "admin" },
+      { label: "Access Reviews", path: "/admin/access-reviews", icon: ClipboardCheck, permission: "admin" },
       { label: "Integrations", path: "/admin/integrations", icon: Plug, permission: "admin", phase2: true },
       { label: "System Configuration", path: "/admin/system", icon: SlidersHorizontal, permission: "admin", phase2: true },
       { label: "Audit Logs", path: "/admin/audit-logs", icon: History, permission: "admin" },

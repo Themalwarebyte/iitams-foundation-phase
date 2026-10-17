@@ -2,6 +2,12 @@ import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { Infer, v } from "convex/values";
 import { PROVISIONABLE_INITIAL_ROLES } from "../lib/membership";
+import {
+  accessReviewCycleStatusValidator,
+  accessReviewDecisionValidator,
+  accessReviewRecommendationValidator,
+  accessReviewRemediationStatusValidator,
+} from "../lib/accessReview";
 
 // ============================================================================
 // IDENTITY & ACCESS — roles (RBAC)
@@ -911,6 +917,104 @@ const schema = defineSchema(
       // Lookup by stored hash for token acceptance (keeps the acceptance path
       // hash-driven — a guessed plaintext never enumerates invitations).
       .index("by_secret_hash", ["secretHash"]),
+
+    // ------------------------------------------------------------------
+    // ACCESS REVIEWS — Phase 3A Batch A3 (recertification foundation)
+    // ------------------------------------------------------------------
+    // Organisation-scoped review cycles, immutable membership SNAPSHOTS and
+    // append-only decisions/recommendations on top of the existing RBAC and
+    // membership model.
+    //
+    //  - Snapshots copy the reviewed membership's identity, role, membership
+    //    status and last-activity at capture time. Rows are insert-only: later
+    //    role/status changes never rewrite historical review evidence.
+    //  - Decisions are append-only (history preserved); the latest row is the
+    //    current decision.
+    //  - Remediation rows record a RECOMMENDATION. `status` only becomes
+    //    "applied" after the existing authorized mutation succeeds; a
+    //    recommendation is never presented as implemented.
+    accessReviewCycles: defineTable({
+      organizationId: v.id("organizations"),
+      title: v.string(),
+      dueAt: v.number(),
+      status: accessReviewCycleStatusValidator,
+      creatorUserId: v.id("users"),
+      creatorLabel: v.string(),
+      createdAt: v.number(),
+      completedAt: v.optional(v.number()),
+      completedByUserId: v.optional(v.id("users")),
+      completedByLabel: v.optional(v.string()),
+      // Resumable snapshot capture (organizations larger than one batch).
+      // The cursor persists between calls so a bounded, page-sized batch can
+      // be resumed without rescanning; `captureScanComplete` is the only
+      // signal that the snapshot is complete enough to close the cycle.
+      captureCursor: v.optional(v.string()),
+      membersScanned: v.optional(v.number()),
+      membersEligible: v.optional(v.number()),
+      captureScanComplete: v.optional(v.boolean()),
+      captureCompletedAt: v.optional(v.number()),
+      lastCaptureAt: v.optional(v.number()),
+    }).index("by_organization", ["organizationId"]),
+
+    accessReviewItems: defineTable({
+      organizationId: v.id("organizations"),
+      cycleId: v.id("accessReviewCycles"),
+      targetProfileId: v.id("userProfiles"),
+      targetUserId: v.id("users"),
+      // Frozen copy of the reviewed membership at capture time.
+      targetLabel: v.string(),
+      targetEmail: v.optional(v.string()),
+      roleSnapshot: v.optional(v.string()),
+      membershipStatusSnapshot: v.string(),
+      lastActivityAt: v.optional(v.number()),
+      capturedAt: v.number(),
+      capturedByUserId: v.id("users"),
+      capturedByLabel: v.string(),
+    })
+      .index("by_cycle", ["cycleId"])
+      // Duplicate prevention for resumable capture: one snapshot per reviewed
+      // membership per cycle, enforced by lookup on this index.
+      .index("by_cycle_target", ["cycleId", "targetProfileId"])
+      .index("by_organization", ["organizationId"]),
+
+    accessReviewDecisions: defineTable({
+      organizationId: v.id("organizations"),
+      cycleId: v.id("accessReviewCycles"),
+      itemId: v.id("accessReviewItems"),
+      decision: accessReviewDecisionValidator,
+      notes: v.optional(v.string()),
+      reviewerUserId: v.id("users"),
+      reviewerLabel: v.string(),
+      createdAt: v.number(),
+    })
+      .index("by_item", ["itemId"])
+      .index("by_cycle", ["cycleId"])
+      .index("by_organization", ["organizationId"]),
+
+    accessReviewRemediations: defineTable({
+      organizationId: v.id("organizations"),
+      cycleId: v.id("accessReviewCycles"),
+      itemId: v.id("accessReviewItems"),
+      recommendation: accessReviewRecommendationValidator,
+      targetRole: v.optional(v.string()),
+      notes: v.optional(v.string()),
+      status: accessReviewRemediationStatusValidator,
+      proposedByUserId: v.id("users"),
+      proposedByLabel: v.string(),
+      createdAt: v.number(),
+      appliedAt: v.optional(v.number()),
+      appliedByUserId: v.optional(v.id("users")),
+      appliedByLabel: v.optional(v.string()),
+      withdrawnAt: v.optional(v.number()),
+      withdrawnByLabel: v.optional(v.string()),
+      roleBefore: v.optional(v.string()),
+      roleAfter: v.optional(v.string()),
+      membershipBefore: v.optional(v.string()),
+      membershipAfter: v.optional(v.string()),
+    })
+      .index("by_item", ["itemId"])
+      .index("by_cycle", ["cycleId"])
+      .index("by_organization", ["organizationId"]),
 
     // ------------------------------------------------------------------
     // AUDIT LOGGING — immutable trail of significant actions

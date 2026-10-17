@@ -9,6 +9,7 @@ import {
 import { applyInitialMembership } from "./membershipCore";
 import { IITAMS_ROLES, permissionsForRole } from "./access";
 import {
+  DIRECTORY_ROW_LIMIT,
   MEMBERSHIP_STATUS_LABELS,
   PROVISIONABLE_INITIAL_ROLES,
   canChangeMembershipStatus,
@@ -185,28 +186,42 @@ interface DirectoryEntry {
   createdAt: number;
 }
 
-/** Read-only user directory for the caller's organization. */
+/**
+ * Read-only user directory for the caller's organization.
+ *
+ * BOUNDED BY DESIGN. The shared demo organization accumulates thousands of
+ * profiles, and a full-table collect plus one identity lookup per row exceeded
+ * Convex's per-function read budget (it started returning "too many system
+ * operations" and the directory — and anything waiting on it — stalled).
+ * The query therefore pages the organization index newest-first and returns at
+ * most `limit` rows (default and max `DIRECTORY_ROW_LIMIT`), which always
+ * includes memberships created or updated most recently. Small organizations
+ * are unaffected: they still receive their complete directory.
+ *
+ * Identity lookups for the page run in PARALLEL; profile reads + user reads
+ * stay far below the function read budget.
+ */
 export const listUsers = query({
-  args: {},
-  handler: async (ctx): Promise<DirectoryEntry[]> => {
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args): Promise<DirectoryEntry[]> => {
     const access = await requirePermission(ctx, "admin.view");
     if (!access.organizationId) return [];
 
-    const profiles = await ctx.db
+    const requested = Math.floor(args.limit ?? DIRECTORY_ROW_LIMIT);
+    const limit = Math.max(1, Math.min(DIRECTORY_ROW_LIMIT, requested));
+
+    const page = await ctx.db
       .query("userProfiles")
       .withIndex("by_organization", (q) =>
         q.eq("organizationId", access.organizationId!),
       )
-      .collect();
+      .order("desc")
+      .take(limit);
 
-    // Compose the per-user display fields from both identity tables in
-    // PARALLEL: a sequential lookup per profile made the directory query
-    // exceed Convex's 1s execution budget once the demo organization grew to
-    // hundreds of members (the shared demo org accumulates guests).
     const users = await Promise.all(
-      profiles.map((profile) => ctx.db.get(profile.userId)),
+      page.map((profile) => ctx.db.get(profile.userId)),
     );
-    const entries: DirectoryEntry[] = profiles.map((profile, i) => {
+    const entries: DirectoryEntry[] = page.map((profile, i) => {
       const user = users[i];
       return {
         _id: profile._id,

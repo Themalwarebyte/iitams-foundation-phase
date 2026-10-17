@@ -76,6 +76,13 @@ export function lastAdminGuardMessage(): string {
  *    (platform: user, member · audit: director, manager, auditor,
  *    reviewer, management user, executive viewer).
  */
+/**
+ * Maximum rows the organization directory returns in one call. Bounded on
+ * purpose: a full-directory read plus one identity lookup per row exceeds
+ * Convex's per-function read budget in large (demo) organizations.
+ */
+export const DIRECTORY_ROW_LIMIT = 300;
+
 export const PROVISIONABLE_INITIAL_ROLES = [
   "user",
   "member",

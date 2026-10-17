@@ -57,6 +57,7 @@ import {
 import { StatusChip, statusLabel } from "@/components/iitams/badges";
 import { formatRelative } from "@/lib/format";
 import {
+  DIRECTORY_ROW_LIMIT,
   INITIAL_ROLE_LABELS,
   INVITATION_STATUS_LABELS,
   isValidInvitationEmail,
@@ -1255,13 +1256,11 @@ export function AdminUsersPage() {
   }, [rows, search, roleFilter, statusFilter]);
 
   // Render window: the demo organization accumulates thousands of guest
-  // profiles, and rendering every row made this page — and every interaction
-  // on it — pathologically slow. Small directories are unaffected (identical
-  // alphabetical listing). Above the window the most RECENT rows are rendered
-  // — judged by the later of last activity and row creation, so newly
-  // provisioned members and just-active sessions are always visible — and the
-  // header says so, while search and filters keep operating over the FULL
-  // directory. No member is hidden silently.
+  // profiles. The server returns a BOUNDED directory page (newest memberships
+  // first) because an unbounded read exceeded Convex's per-function read
+  // budget; this window keeps rendering cheap as well. Small directories are
+  // unaffected (identical alphabetical listing). When the directory is larger
+  // than the returned page the header says so — no member is hidden silently.
   const RENDER_LIMIT = 200;
   const rendered = useMemo(() => {
     if (filtered.length <= RENDER_LIMIT) return filtered;
@@ -1288,12 +1287,15 @@ export function AdminUsersPage() {
     >
       <div className="mb-4 flex items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          {rows?.length ?? "…"} member{rows?.length === 1 ? "" : "s"} in this organization
+          {rows === undefined
+            ? "Loading directory…"
+            : rows.length >= DIRECTORY_ROW_LIMIT
+              ? `Showing the ${rows.length} most recent memberships — large directories are paged for reliability`
+              : `${rows.length} member${rows.length === 1 ? "" : "s"} in this organization`}
           {filtered.length > RENDER_LIMIT && (
             <span className="text-muted-foreground">
               {" "}
-              — showing the {RENDER_LIMIT} most recent members; refine with
-              search or filters
+              — displaying {RENDER_LIMIT} at a time; refine with search or filters
             </span>
           )}
         </p>
