@@ -363,4 +363,90 @@ describe("Risk assessments — runtime", () => {
     },
     120000,
   );
+
+  test(
+    "concurrent submissions leave the register on the latest committed assessment",
+    async () => {
+      if (!(await serverUp()) || !harnessConfigured) {
+        throw new Error("[test:PREREQ-FAILED] backend/harness unavailable");
+      }
+      const admin = await adminClient();
+      if (!admin) {
+        throw new Error("[test:PREREQ-FAILED] trusted-runner admin grant unavailable");
+      }
+
+      const risk = (await admin.mutation(api.risks.createRisk, {
+        title: `Concurrent assessment risk ${uniq()}`,
+        category: "Cyber",
+        inherentLikelihood: 2,
+        inherentImpact: 2,
+        residualLikelihood: 1,
+        residualImpact: 1,
+      })) as { riskId: string };
+
+      // Four assessments fire in the same tick with distinct outcomes and
+      // review dates. Convex serialises the transactions and retries
+      // conflicting writes, so each row must see a coherent predecessor and
+      // the register must end on exactly one committed assessment.
+      const submissions = [
+        { residualLikelihood: 2, residualImpact: 2, nextReviewDate: Date.now() + 40 * DAY },
+        { residualLikelihood: 3, residualImpact: 2, nextReviewDate: Date.now() + 50 * DAY },
+        { residualLikelihood: 2, residualImpact: 4, nextReviewDate: Date.now() + 60 * DAY },
+        { residualLikelihood: 4, residualImpact: 4, nextReviewDate: Date.now() + 70 * DAY },
+      ];
+      const results = (await Promise.all(
+        submissions.map((s, i) =>
+          admin.mutation(api.riskAssessments.createAssessment, {
+            riskId: risk.riskId as never,
+            assessmentDate: Date.now(),
+            inherentLikelihood: 3,
+            inherentImpact: 3,
+            residualLikelihood: s.residualLikelihood,
+            residualImpact: s.residualImpact,
+            justification: `Concurrent assessment ${i} with distinct committed outcome`,
+            nextReviewDate: s.nextReviewDate,
+          }),
+        ),
+      )) as Array<{ assessmentId: string; residualScore: number }>;
+
+      expect(results).toHaveLength(4);
+      expect(new Set(results.map((r) => r.assessmentId)).size).toBe(4);
+
+      const history = (await admin.query(api.riskAssessments.listForRisk, {
+        riskId: risk.riskId as never,
+      })) as {
+        risk: { residualScore: number; reviewDue?: number };
+        assessments: Assessment[];
+        driftSinceLatestAssessment: number | null;
+      };
+      const register = (await admin.query(api.risks.getRisk, {
+        riskId: risk.riskId as never,
+      })) as RiskDetail;
+
+      expect(history.assessments).toHaveLength(4);
+      expect(history.driftSinceLatestAssessment).toBe(0);
+
+      // The register equals the newest committed assessment, not an arbitrary
+      // earlier write and not a blend of concurrent ones.
+      const newest = history.assessments[0];
+      expect(register.residualScore).toBe(newest.residualScore);
+      expect(register.reviewDue).toBe(newest.nextReviewDate);
+      expect(history.risk.residualScore).toBe(newest.residualScore);
+
+      // The chain is coherent: oldest starts from the pre-existing 1 (1×1),
+      // and every later row's `previousResidualScore` is its predecessor's
+      // committed score.
+      const chronological = [...history.assessments].reverse();
+      expect(chronological[0].previousResidualScore).toBe(1);
+      for (let i = 1; i < chronological.length; i += 1) {
+        expect(chronological[i].previousResidualScore).toBe(
+          chronological[i - 1].residualScore,
+        );
+      }
+      expect(chronological[chronological.length - 1].residualScore).toBe(
+        register.residualScore,
+      );
+    },
+    120000,
+  );
 });

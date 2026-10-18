@@ -1043,6 +1043,20 @@ describe("Batch A1 — administrator lifecycle (runtime boundary)", () => {
         return l?.administrators ?? [];
       };
 
+      // Normalise the shared demo organization before measuring: other suites
+      // (and interrupted earlier runs) leave short-TTL demo grants behind, and
+      // the harness's own hygiene sweep runs before every grant. Persisting
+      // expired artifacts first keeps the before/after counts here measuring
+      // THIS grant instead of a concurrent sweep.
+      await fetch(`${HARNESS}/api/dev-expire-demo-grants`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-iitams-tester-token": token,
+        },
+        body: JSON.stringify({}),
+      }).catch(() => undefined);
+
       const before = await directory();
 
       // Grant a SECOND demo admin with a one-second TTL; its row becomes an
