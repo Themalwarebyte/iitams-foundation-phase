@@ -6,7 +6,7 @@
 
 ## 1. Exact schema inventory (verified programmatically)
 
-**Total tables: 41** — 7 Convex Auth platform tables + **34** defined in
+**Total tables: 43** — 7 Convex Auth platform tables + **36** defined in
 `src/convex/schema.ts`. The inventory below enumerates the tenancy root, the
 original domain tables and the tables added by later batches (e.g.
 `riskAssessments`); Phase-2 workflow tables are detailed in
@@ -24,7 +24,7 @@ original domain tables and the tables added by later batches (e.g.
 | `authVerifiers` | Verifier challenge records (convex-auth internal) | `signature` |
 | `users` | Identity records (name, email, isAnonymous, role) | `email` |
 
-### Domain (18) — tenant-scoped by `organizationId` unless noted
+### Domain (20) — tenant-scoped by `organizationId` unless noted
 
 | Table | Purpose | Indexes |
 | --- | --- | --- |
@@ -37,6 +37,8 @@ original domain tables and the tables added by later batches (e.g.
 | `correctiveActions` | Remediation tracking per finding (owner, due, status) | `by_organization`, `by_status` |
 | `risks` | ICT risk register: 5×5 inherent/residual likelihood × impact; org-scoped `R-###` identifier | `by_organization`, `by_status`, `by_organization_code` |
 | `riskAssessments` | Insert-only risk assessment snapshots (factors, controls, justification, next review) | `by_organization`, `by_risk`, `by_organization_risk` |
+| `riskTreatmentPlans` | Per-risk treatment strategy, objective, owner, target date and status (`TP-###`) | `by_organization`, `by_risk`, `by_organization_risk`, `by_organization_reference` |
+| `riskTreatmentActions` | Separate treatment action records with owner, due date and controlled status | `by_organization`, `by_plan`, `by_organization_plan`, `by_organization_due` |
 | `riskTrendSnapshots` | Quarterly pre-aggregated risk trend series | `by_organization` |
 | `complianceFrameworks` | Frameworks with implemented/total controls and scores | `by_organization` |
 | `controls` | Control library with effectiveness states | `by_organization`, `by_effectiveness` |
@@ -47,7 +49,11 @@ original domain tables and the tables added by later batches (e.g.
 | `notifications` | **Mixed scope:** user-scoped or org-wide | `by_user`, `by_organization` |
 | `auditLogs` | Append-only activity/audit trail — **mixed scope** | `by_organization`, `by_organization_entity` |
 
-**Tenant-scoped:** 14 tables (those with a `by_organization` index).
+**Tenant-scoped:** 31 tables in the full schema define a `by_organization`
+index. The 20 line items above are the original domain inventory; the
+Phase-2 workflow tables (engagements, programs, working papers, evidence,
+access reviews, administrator lifecycle) are enumerated in
+`docs/PHASE_2_DATA_MODEL.md`.
 **User-scoped:** `userProfiles`; the user-facing slice of `notifications`.
 **Platform/global:** the 7 platform tables, plus `organizations` (tenancy
 root) and the org-wide slice of `notifications`/`auditLogs`.

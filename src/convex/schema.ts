@@ -11,6 +11,8 @@ import {
 import {
   riskCategoryValidator,
   riskStatusValidator,
+  treatmentStatusValidator,
+  treatmentStrategyValidator,
 } from "../lib/risk";
 
 // ============================================================================
@@ -741,6 +743,63 @@ const schema = defineSchema(
       .index("by_organization_risk", ["organizationId", "riskId"]),
 
     // ------------------------------------------------------------------
+    // ICT RISK TREATMENT PLANS AND ACTIONS (Phase 3B — Batch 2B)
+    // ------------------------------------------------------------------
+    // A treatment plan records the chosen strategy (mitigate / avoid /
+    // transfer / accept) for one organization-scoped risk. Choosing `accept`
+    // stores a documented PROPOSAL only — it approves nothing and never
+    // changes the risk's status or residual score. Actions are separate rows
+    // so status history is appended rather than overwritten, and completing
+    // every action never marks the risk treated: residual risk only moves via
+    // the risk-assessment workflow.
+    riskTreatmentPlans: defineTable({
+      organizationId: v.id("organizations"),
+      riskId: v.id("risks"),
+      // Human-readable per-organization identifier (TP-001…).
+      reference: v.string(),
+      strategy: treatmentStrategyValidator,
+      objective: v.string(),
+      justification: v.string(),
+      ownerUserId: v.optional(v.id("users")),
+      ownerName: v.string(),
+      targetDate: v.number(),
+      status: treatmentStatusValidator,
+      notes: v.optional(v.string()),
+      completedAt: v.optional(v.number()),
+      createdByUserId: v.id("users"),
+      createdByLabel: v.string(),
+      isDemo: v.optional(v.boolean()),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_risk", ["riskId"])
+      .index("by_organization_risk", ["organizationId", "riskId"])
+      .index("by_organization_reference", ["organizationId", "reference"]),
+
+    riskTreatmentActions: defineTable({
+      organizationId: v.id("organizations"),
+      riskId: v.id("risks"),
+      planId: v.id("riskTreatmentPlans"),
+      description: v.string(),
+      ownerUserId: v.optional(v.id("users")),
+      ownerName: v.string(),
+      dueDate: v.number(),
+      status: treatmentStatusValidator,
+      completedAt: v.optional(v.number()),
+      completionNotes: v.optional(v.string()),
+      // Supporting reference (ticket, evidence pack, policy clause…).
+      reference: v.optional(v.string()),
+      createdByUserId: v.id("users"),
+      createdByLabel: v.string(),
+      isDemo: v.optional(v.boolean()),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_plan", ["planId"])
+      .index("by_organization_plan", ["organizationId", "planId"])
+      .index("by_organization_due", ["organizationId", "dueDate"]),
+
+    // ------------------------------------------------------------------
     // COMPLIANCE MANAGEMENT
     // ------------------------------------------------------------------
     complianceFrameworks: defineTable({
@@ -1079,6 +1138,11 @@ const schema = defineSchema(
       action: v.string(), // e.g. "engagement.created"
       entityType: v.string(),
       entityId: v.optional(v.string()),
+      // Phase 3B — Batch 2B: the secondary record the entry also concerns
+      // (e.g. the treatment plan/action behind a risk-level audit entry).
+      // Optional + backward-compatible: existing rows remain valid.
+      relatedEntityType: v.optional(v.string()),
+      relatedEntityId: v.optional(v.string()),
       summary: v.optional(v.string()),
       createdAt: v.number(),
     })

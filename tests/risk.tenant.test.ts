@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeAll } from "bun:test";
+import { afterAll, describe, expect, test, beforeAll } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ConvexHttpClient } from "convex/browser";
@@ -20,7 +20,14 @@ import { api, internal } from "../src/convex/_generated/api";
  * Fixtures are created by the internal, dev-gated `devTenantFixtures`
  * mutation (deployment-credential only) and are never deleted or migrated;
  * the shared demo organization is not touched.
+ *
+ * Every record this suite creates carries the explicit RUN_TAG title tag and
+ * is removed again through the internal, dev-gated fixture cleanup (scoped to
+ * these two fixture organizations, refusing real tenants and never touching
+ * audit history), so repeat runs leave the fixtures at their baseline.
  */
+
+const RUN_TAG = "[iitams-risk-tenant-test]";
 
 const CONVEX_URL = process.env.VITE_CONVEX_URL ?? "http://127.0.0.1:3210";
 const HARNESS = process.env.VITE_CONVEX_SITE_URL ?? "http://127.0.0.1:3211";
@@ -123,6 +130,38 @@ let fixtureA: Fixture | null = null;
 let fixtureB: Fixture | null = null;
 let clientA: ConvexHttpClient | null = null;
 let clientB: ConvexHttpClient | null = null;
+/** Treatment plan this run created in tenant B, removed again in teardown. */
+let fixturePlanId: string | null = null;
+let fixturePlanReference: string | null = null;
+
+/**
+ * Remove this run's tagged records again so the fixtures stay at their
+ * baseline. Best-effort: teardown never replaces a real verification result
+ * with an error, because the assertions above do not depend on it.
+ */
+async function cleanUpFixtureRecords(): Promise<void> {
+  try {
+    const adminKey = devAdminKey();
+    if (!adminKey || !(await serverUp())) return;
+    const admin = new ConvexHttpClient(CONVEX_URL);
+    (admin as unknown as { setAdminAuth: (v: string) => void }).setAdminAuth(adminKey);
+    for (let i = 0; i < 10; i += 1) {
+      const result = (await admin.mutation(
+        internal.devTenantFixtures.resetFixtureRecords,
+        { organizationCode: "IITAMS-TEST-A", titleTag: RUN_TAG, maxRisks: 25 },
+      )) as { remaining: number };
+      if (result.remaining === 0) break;
+    }
+    if (fixturePlanId) {
+      await admin.mutation(internal.devTenantFixtures.deleteFixtureTreatmentPlan, {
+        planId: fixturePlanId as never,
+      });
+      fixturePlanId = null;
+    }
+  } catch (e) {
+    console.warn(`[risk.tenant:WARN] fixture cleanup skipped: ${String(e).slice(0, 200)}`);
+  }
+}
 
 beforeAll(async () => {
   if (!(await serverUp()) || !token) return;
@@ -138,6 +177,10 @@ beforeAll(async () => {
   if (!fixtureA || !fixtureB) return;
   clientA = await signInEmailOtp(fixtureA.email);
   clientB = await signInEmailOtp(fixtureB.email);
+});
+
+afterAll(async () => {
+  await cleanUpFixtureRecords();
 });
 
 describe("Risk register — cross-tenant isolation (two real organizations)", () => {
@@ -226,7 +269,7 @@ describe("Risk register — cross-tenant isolation (two real organizations)", ()
       const bBefore = (await clientB.query(api.risks.listRisks, {})) as RiskRow[];
 
       const created = (await clientA.mutation(api.risks.createRisk, {
-        title: `Tenant A isolation check ${Date.now()}`,
+        title: `${RUN_TAG} Tenant A isolation check ${Date.now()}`,
         category: "Data",
         inherentLikelihood: 3,
         inherentImpact: 3,
@@ -301,6 +344,137 @@ describe("Risk register — cross-tenant isolation (two real organizations)", ()
       };
       expect(aSummary.overdueReviews).toBe(0);
       expect(bSummary.overdueReviews).toBeGreaterThanOrEqual(1);
+    },
+    120000,
+  );
+
+  test(
+    "treatment plans, actions and owners are refused across organizations",
+    async () => {
+      if (!fixtureA || !fixtureB || !clientA || !clientB) {
+        throw new Error("[test:PREREQ-FAILED] tenant fixtures or OTP sign-in unavailable");
+      }
+
+      // Foreign treatment plans are invisible on read.
+      expect(
+        await clientA.query(api.riskTreatment.listForRisk, {
+          riskId: fixtureB!.riskId as never,
+        }),
+      ).toBeNull();
+      expect(
+        await clientB.query(api.riskTreatment.listForRisk, {
+          riskId: fixtureA!.riskId as never,
+        }),
+      ).toBeNull();
+
+      // Tenant A cannot plan treatment for tenant B's risk.
+      await expect(
+        clientA.mutation(api.riskTreatment.createPlan, {
+          riskId: fixtureB!.riskId as never,
+          strategy: "mitigate",
+          objective: "Cross-tenant treatment attempt must be refused",
+          justification: "Foreign risk ids are indistinguishable from missing ones",
+          ownerUserId: fixtureA!.userId as never,
+          targetDate: Date.now() + 30 * DAY,
+        }),
+      ).rejects.toThrow(/not found in your organization/i);
+
+      // Tenant B creates a real plan and action for its own risk.
+      const plan = (await clientB.mutation(api.riskTreatment.createPlan, {
+        riskId: fixtureB!.riskId as never,
+        strategy: "mitigate",
+        objective: "Reduce the archive exposure in tenant B only",
+        justification: "Tenant B owns this risk and its treatment evidence",
+        ownerUserId: fixtureB!.userId as never,
+        targetDate: Date.now() + 30 * DAY,
+      })) as { planId: string; reference: string };
+      fixturePlanId = plan.planId;
+      fixturePlanReference = plan.reference;
+      const action = (await clientB.mutation(api.riskTreatment.addAction, {
+        planId: plan.planId as never,
+        description: "Tenant B action that tenant A must never reach",
+        ownerUserId: fixtureB!.userId as never,
+        dueDate: Date.now() + 15 * DAY,
+      })) as { actionId: string };
+
+      // Tenant A cannot read or mutate B's plan or action by id.
+      expect(
+        await clientA.query(api.riskTreatment.getPlan, {
+          planId: plan.planId as never,
+        }),
+      ).toBeNull();
+      await expect(
+        clientA.mutation(api.riskTreatment.updatePlanStatus, {
+          planId: plan.planId as never,
+          status: "in_progress",
+        }),
+      ).rejects.toThrow(/not found in your organization/i);
+      await expect(
+        clientA.mutation(api.riskTreatment.updateActionStatus, {
+          actionId: action.actionId as never,
+          status: "in_progress",
+        }),
+      ).rejects.toThrow(/not found in your organization/i);
+
+      // Owner validation: a member of another organization cannot be assigned.
+      await expect(
+        clientB.mutation(api.riskTreatment.createPlan, {
+          riskId: fixtureB!.riskId as never,
+          strategy: "mitigate",
+          objective: "Assign an owner from a different organization",
+          justification: "Cross-tenant ownership must be refused outright",
+          ownerUserId: fixtureA!.userId as never,
+          targetDate: Date.now() + 30 * DAY,
+        }),
+      ).rejects.toThrow(/not a member of your organization/i);
+
+      // Tenant B's plan is untouched by the failed attempts.
+      const bList = (await clientB.query(api.riskTreatment.listForRisk, {
+        riskId: fixtureB!.riskId as never,
+      })) as {
+        plans: Array<{ reference: string; status: string; actions: unknown[] }>;
+      };
+      const bPlan = bList.plans.find((p) => p.reference === plan.reference);
+      expect(bPlan?.status).toBe("planned");
+      expect(bPlan?.actions).toHaveLength(1);
+
+      // Tenant A's own treatment view does not contain tenant B's plan.
+      const aList = (await clientA.query(api.riskTreatment.listForRisk, {
+        riskId: fixtureA!.riskId as never,
+      })) as { plans: Array<{ reference: string }> };
+      expect(aList.plans.some((p) => p.reference === plan.reference)).toBe(false);
+    },
+    120000,
+  );
+
+  test(
+    "fixture cleanup leaves both tenants at their baseline after the run",
+    async () => {
+      if (!fixtureA || !fixtureB || !clientA || !clientB) {
+        throw new Error("[test:PREREQ-FAILED] tenant fixtures or OTP sign-in unavailable");
+      }
+      await cleanUpFixtureRecords();
+
+      // Tenant A: this run's tagged risk is gone, its fixture baseline stays.
+      const aRows = (await clientA.query(api.risks.listRisks, {})) as RiskRow[];
+      expect(aRows.some((r) => r.title.startsWith(RUN_TAG))).toBe(false);
+      expect(aRows.some((r) => r.code === fixtureA!.riskCode)).toBe(true);
+
+      // Tenant B: this run's treatment plan is gone, its fixture risk stays.
+      const bList = (await clientB!.query(api.riskTreatment.listForRisk, {
+        riskId: fixtureB!.riskId as never,
+      })) as { plans: Array<{ reference: string }> };
+      if (fixturePlanReference) {
+        expect(bList.plans.some((p) => p.reference === fixturePlanReference)).toBe(
+          false,
+        );
+      }
+      fixturePlanReference = null;
+
+      // Cross-tenant denial still holds after cleanup.
+      expect(
+        await clientB!.query(api.risks.getRisk, { riskId: fixtureA!.riskId as never }),
+      ).toBeNull();
     },
     120000,
   );

@@ -184,7 +184,59 @@ describe("IITAMS risk register (browser)", () => {
         await visible(page.getByText(/risk assessments/i).first(), 10000),
       ).toBe(true);
 
-      // 7. Dialog closes back to the register without a page error.
+      // 7. Treatment plan: create a plan, add an action, then move the action
+      //    through its controlled states with completion evidence. The plan
+      //    header reports the register's current residual score, unchanged by
+      //    treatment work.
+      await page.getByRole("button", { name: "New treatment plan" }).click();
+      const objective = page.locator("#plan-objective");
+      expect(await visible(objective, 10000)).toBe(true);
+      const objectiveText = `Browser treatment objective ${Date.now()}`;
+      await objective.fill(objectiveText);
+      await page
+        .locator("#plan-justification")
+        .fill("Browser treatment justification with compensating controls");
+      await page.getByLabel("Responsible owner").click();
+      await page.keyboard.press("ArrowDown");
+      await page.keyboard.press("Enter");
+      await page.getByRole("button", { name: "Create plan" }).click();
+      expect(await visible(page.getByText(/TP-\d{3}/).first(), 20000)).toBe(true);
+      expect(await visible(page.getByText(objectiveText).first(), 10000)).toBe(true);
+
+      await page.getByRole("button", { name: "Add action" }).click();
+      const actionDescription = `Browser treatment action ${Date.now()}`;
+      expect(await visible(page.locator("#action-description"), 10000)).toBe(true);
+      await page.locator("#action-description").fill(actionDescription);
+      await page.getByLabel("Responsible owner").click();
+      await page.keyboard.press("ArrowDown");
+      await page.keyboard.press("Enter");
+      await page.getByRole("button", { name: "Save action" }).click();
+      expect(await visible(page.getByText(actionDescription).first(), 20000)).toBe(true);
+
+      const statusSelect = page.getByLabel(
+        `Update status for ${actionDescription}`,
+      );
+      expect(await visible(statusSelect, 10000)).toBe(true);
+      await statusSelect.click();
+      await page.getByRole("option", { name: "In progress" }).click();
+      await page.getByRole("button", { name: "Save action status" }).click();
+      expect(
+        await visible(page.getByText("In progress").first(), 20000),
+      ).toBe(true);
+
+      await statusSelect.click();
+      await page.getByRole("option", { name: "Completed" }).click();
+      const completionNotes = page.getByLabel("Completion notes");
+      expect(await visible(completionNotes, 10000)).toBe(true);
+      const completionText = `Browser completion evidence ${Date.now()}`;
+      await completionNotes.fill(completionText);
+      await page.getByRole("button", { name: "Save action status" }).click();
+      expect(await visible(page.getByText(/Completion notes:/).first(), 20000)).toBe(
+        true,
+      );
+      expect(await visible(page.getByText(/1\/1 actions/).first(), 10000)).toBe(true);
+
+      // 8. Dialog closes back to the register without a page error.
       await page.keyboard.press("Escape");
       expect(
         await visible(page.getByRole("heading", { name: "Risk Register" }), 10000),
@@ -225,6 +277,12 @@ describe("IITAMS risk register (browser)", () => {
       expect(
         await visible(
           page.getByRole("button", { name: "Record assessment" }),
+          2000,
+        ),
+      ).toBe(false);
+      expect(
+        await visible(
+          page.getByRole("button", { name: "New treatment plan" }),
           2000,
         ),
       ).toBe(false);

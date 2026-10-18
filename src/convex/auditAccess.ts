@@ -142,6 +142,9 @@ export async function logAudit(
     action: string;
     entityType: string;
     entityId?: string;
+    /** Secondary record the entry also concerns (e.g. a treatment plan). */
+    relatedEntityType?: string;
+    relatedEntityId?: string;
     summary?: string;
   },
 ): Promise<void> {
@@ -153,6 +156,8 @@ export async function logAudit(
     action: input.action,
     entityType: input.entityType,
     entityId: input.entityId,
+    relatedEntityType: input.relatedEntityType,
+    relatedEntityId: input.relatedEntityId,
     summary: input.summary,
     createdAt: Date.now(),
   });

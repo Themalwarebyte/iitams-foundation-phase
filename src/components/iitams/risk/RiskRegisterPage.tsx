@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { useSearchParams } from "react-router";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AppLayout } from "@/components/iitams/AppLayout";
@@ -7,6 +8,7 @@ import { Breadcrumbs, PageHeader } from "@/components/iitams/PageHeader";
 import { EmptyState, ListSkeleton } from "@/components/iitams/audit/ListPageShell";
 import { RiskScoreBadge, StatusChip } from "@/components/iitams/badges";
 import { RiskAssessments } from "./RiskAssessments";
+import { RiskTreatmentPlans } from "./RiskTreatmentPlans";
 import { KpiCard } from "@/components/iitams/KpiCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -592,6 +594,11 @@ function RiskDetailDialog({
               canManage={canManage}
             />
 
+            <RiskTreatmentPlans
+              riskId={detail._id as Id<"risks">}
+              canManage={canManage}
+            />
+
             {detail.history.length > 0 && (
               <details className="text-xs text-muted-foreground">
                 <summary className="cursor-pointer select-none">
@@ -637,7 +644,19 @@ export function RiskRegisterPage() {
   const [status, setStatus] = useState<string>("all");
   const [band, setBand] = useState<string>("all");
   const [createOpen, setCreateOpen] = useState(false);
-  const [selected, setSelected] = useState<Id<"risks"> | null>(null);
+  // Deep link support: /risk/register?risk=<id> opens that record's detail.
+  // Monitoring relies on it to navigate to the exact register entry without
+  // duplicating an editable register. Malformed ids are ignored, never passed
+  // to a validator-backed query.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkedRisk = searchParams.get("risk");
+  const linkedRiskId =
+    linkedRisk && /^[a-z0-9]{16,64}$/i.test(linkedRisk)
+      ? (linkedRisk as Id<"risks">)
+      : null;
+  // A row the user clicked wins over the link in the URL; closing clears both.
+  const [pickedRiskId, setPickedRiskId] = useState<Id<"risks"> | null>(null);
+  const selected = pickedRiskId ?? linkedRiskId;
 
   const canView = session?.permissions?.risk === true;
   const canManage = session?.permissions?.riskManage === true;
@@ -662,6 +681,19 @@ export function RiskRegisterPage() {
         bands: Record<RiskBand, number>;
         overdueReviews: number;
         dueSoon: number;
+      }
+    | undefined;
+  const treatment = useQuery(
+    api.riskTreatment.treatmentSummary,
+    canView ? {} : "skip",
+  ) as
+    | {
+        risksAssessed: number;
+        risksReassessed: number;
+        treatmentPlanned: number;
+        treatmentInProgress: number;
+        actionsCompleted: number;
+        actionsOverdue: number;
       }
     | undefined;
 
@@ -744,6 +776,36 @@ export function RiskRegisterPage() {
           icon={CalendarClock}
           hint="Within the next 30 days"
         />
+      </div>
+
+      <div
+        aria-label="Treatment progress summary"
+        className="mb-6 grid gap-3 rounded-lg border bg-muted/20 p-3 sm:grid-cols-2 lg:grid-cols-5"
+      >
+        {[
+          ["Risks assessed", treatment?.risksAssessed],
+          ["Risks reassessed", treatment?.risksReassessed],
+          ["Treatment planned", treatment?.treatmentPlanned],
+          ["Treatment in progress", treatment?.treatmentInProgress],
+          ["Actions completed", treatment?.actionsCompleted],
+        ].map(([label, value]) => (
+          <div key={label as string}>
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">
+              {label}
+            </p>
+            <p className="text-lg font-semibold tabular-nums">
+              {value === undefined ? "…" : value}
+            </p>
+          </div>
+        ))}
+        {(treatment?.actionsOverdue ?? 0) > 0 && (
+          <p className="text-xs font-medium text-critical sm:col-span-2 lg:col-span-5">
+            {treatment?.actionsOverdue} treatment action
+            {treatment?.actionsOverdue === 1 ? " is" : "s are"} past the due
+            date. Completing actions does not change residual scores — record a
+            risk assessment to evidence any movement.
+          </p>
+        )}
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -829,7 +891,7 @@ export function RiskRegisterPage() {
                       <button
                         type="button"
                         className="text-left"
-                        onClick={() => setSelected(r._id as Id<"risks">)}
+                        onClick={() => setPickedRiskId(r._id as Id<"risks">)}
                       >
                         <span className="font-mono text-xs text-muted-foreground">
                           {r.code}
@@ -868,7 +930,7 @@ export function RiskRegisterPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => setSelected(r._id as Id<"risks">)}
+                        onClick={() => setPickedRiskId(r._id as Id<"risks">)}
                       >
                         View
                       </Button>
@@ -888,7 +950,15 @@ export function RiskRegisterPage() {
       />
       <RiskDetailDialog
         riskId={selected}
-        onOpenChange={(open) => !open && setSelected(null)}
+        onOpenChange={(open) => {
+          if (open) return;
+          setPickedRiskId(null);
+          if (searchParams.has("risk")) {
+            const next = new URLSearchParams(searchParams);
+            next.delete("risk");
+            setSearchParams(next, { replace: true });
+          }
+        }}
         canManage={canManage}
       />
     </AppLayout>

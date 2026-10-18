@@ -55,6 +55,7 @@
 | Immutable per-record audit trail | ✅ | `auditLogs.by_organization_entity`, `risk.created` / `risk.updated` |
 | Tests (structural + runtime + two-organization isolation + Chromium journey) | ✅ | `tests/risk.test.ts`, `tests/risk.tenant.test.ts`, `tests/browser.risk-register.test.ts` |
 | Risk assessments & review history (insert-only snapshots, register stays current) | ✅ | `src/convex/riskAssessments.ts`, `tests/riskAssessments.test.ts` |
+| Risk treatment plans & actions (separate action records, controlled states, overdue/progress summaries; treatment never changes residual scores) | ✅ | `src/convex/riskTreatment.ts`, `src/components/iitams/risk/RiskTreatmentPlans.tsx`, `tests/riskTreatment.test.ts` |
 
 ## Phase 3 — Recommended next (not started)
 
