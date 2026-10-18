@@ -1,13 +1,15 @@
-import { internalMutation } from "./_generated/server";
+import { v } from "convex/values";
+import { internalMutation, type MutationCtx } from "./_generated/server";
 import { guestAuthEnabled } from "./access";
 
 /**
  * DEVELOPMENT-ONLY tenant fixtures for behavioural isolation tests.
  * =================================================================
- * Creates two independent, explicitly demo-flagged organizations (A and B),
- * one verified non-anonymous member in each, and one risk record per tenant.
- * These fixtures exist so the risk-register test suite can prove cross-tenant
- * denial with a REAL second tenant instead of only a structural assertion.
+ * Creates three independent, explicitly demo-flagged organizations (A, B and
+ * M), one verified non-anonymous member in each, and one risk record per
+ * tenant. A and B exist so the risk-register suite can prove cross-tenant
+ * denial with REAL separate tenants instead of only a structural assertion;
+ * M is the mutable tenant the monitoring suite writes its records to.
  *
  * Safety properties:
  *  - `internalMutation`: not callable from any browser session, HTTP route or
@@ -22,6 +24,12 @@ import { guestAuthEnabled } from "./access";
  *    organization is refused rather than reassigned.
  *  - The fixture users hold the ordinary `user` role (risk.view + risk.manage)
  *    — no administrator role, no elevated permission, no recovery bypass.
+ *  - Tenant M exists because the monitoring suite must CREATE records: it
+ *    writes there so tenants A and B keep containing only their fixture rows.
+ *  - The cleanup mutations below are also `internalMutation`s behind the same
+ *    development gate, operate ONLY on the three fixture organizations and
+ *    never touch auditLogs, so repeat runs cannot grow the fixture data
+ *    indefinitely while the audit trail stays append-only.
  */
 export const ensureTenantFixtures = internalMutation({
   args: {},
@@ -43,6 +51,16 @@ export const ensureTenantFixtures = internalMutation({
         name: "IITAMS Test Tenant B",
         email: "risk-tenant-b@iitams.test",
         riskTitle: "Tenant B fixture risk (records archive)",
+      },
+      {
+        // Dedicated MUTABLE tenant for the monitoring suite: that suite
+        // deliberately writes risks, assessments and treatment rows, so it
+        // owns this organization. A and B stay write-free after their fixture
+        // rows so the cross-tenant suite can assert on their exact contents.
+        code: "IITAMS-TEST-M",
+        name: "IITAMS Test Tenant M",
+        email: "risk-tenant-m@iitams.test",
+        riskTitle: "Tenant M fixture risk (monitoring baseline)",
       },
     ] as const;
 
@@ -190,5 +208,157 @@ export const ensureTenantFixtures = internalMutation({
     }
 
     return { organizations };
+  },
+});
+
+/**
+ * Fixture organizations these cleanup helpers may ever write to, with the
+ * exact baseline risks `ensureTenantFixtures` maintains in each. Anything
+ * outside this allowlist is refused outright, so the helpers cannot be
+ * repurposed to sweep real tenant data.
+ */
+const FIXTURE_BASELINE_CODES: Record<string, readonly string[]> = {
+  "IITAMS-TEST-A": ["R-001"],
+  "IITAMS-TEST-B": ["R-001", "R-002"],
+  "IITAMS-TEST-M": ["R-001"],
+};
+
+async function fixtureOrganization(ctx: MutationCtx, code: string) {
+  const org = await ctx.db
+    .query("organizations")
+    .withIndex("code", (q) => q.eq("code", code))
+    .unique();
+  if (!org) return null;
+  if (org.isDemo !== true || !(org.code in FIXTURE_BASELINE_CODES)) {
+    throw new Error(`Refused: ${code} is not an explicitly demo-flagged fixture organization`);
+  }
+  return org;
+}
+
+/**
+ * Delete one treatment plan and its actions that a test created inside a
+ * fixture organization. Scoped by id, refuses non-fixture organizations, and
+ * leaves auditLogs untouched (the audit trail is append-only).
+ */
+export const deleteFixtureTreatmentPlan = internalMutation({
+  args: { planId: v.id("riskTreatmentPlans") },
+  handler: async (ctx, args) => {
+    if (!guestAuthEnabled()) {
+      throw new Error("Fixture cleanup is only available on development deployments");
+    }
+    const plan = await ctx.db.get(args.planId);
+    if (!plan) return { deletedActions: 0, deletedPlans: 0 };
+    const org = await ctx.db.get(plan.organizationId);
+    if (!org || org.isDemo !== true || !(org.code in FIXTURE_BASELINE_CODES)) {
+      throw new Error("Refused: treatment plans can only be removed from fixture organizations");
+    }
+    const actions = await ctx.db
+      .query("riskTreatmentActions")
+      .withIndex("by_plan", (q) => q.eq("planId", plan._id))
+      .take(200);
+    for (const action of actions) {
+      // Only delete actions that belong to this plan and this same org.
+      if (action.organizationId !== plan.organizationId) continue;
+      await ctx.db.delete(action._id);
+    }
+    await ctx.db.delete(plan._id);
+    return { deletedActions: actions.length, deletedPlans: 1 };
+  },
+});
+
+/**
+ * Remove records a test run created inside a fixture organization, so repeated
+ * local runs cannot grow the fixtures indefinitely.
+ *
+ * Scope is deliberately narrow:
+ *  - development deployments only (same gate as every other dev harness);
+ *  - the three `IITAMS-TEST-*` fixture organizations only, and only while
+ *    they are still demo-flagged; a real organization is refused outright;
+ *  - with `titleTag`, only risks carrying that explicit test-run tag; without
+ *    it, only risks outside the organization's `ensureTenantFixtures`
+ *    baseline (`R-001`, plus `R-002` in tenant B);
+ *  - cascades to that risk's assessments, treatment plans and actions, because
+ *    those rows exist only inside this sandbox and are meaningless without
+ *    their risk;
+ *  - never deletes `auditLogs` — audit history stays append-only.
+ *
+ * Batched so one call stays well inside a Convex transaction: the caller loops
+ * until `remaining` is 0.
+ */
+export const resetFixtureRecords = internalMutation({
+  args: {
+    organizationCode: v.string(),
+    /** Optional explicit test-run tag; omit to reset the disposable tenant. */
+    titleTag: v.optional(v.string()),
+    maxRisks: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    if (!guestAuthEnabled()) {
+      throw new Error("Fixture cleanup is only available on development deployments");
+    }
+    const org = await fixtureOrganization(ctx, args.organizationCode);
+    if (!org) {
+      return { deletedRisks: 0, deletedPlans: 0, deletedActions: 0, deletedAssessments: 0, remaining: 0 };
+    }
+    const baselines = FIXTURE_BASELINE_CODES[org.code] ?? [];
+    const tag = args.titleTag?.trim();
+    if (tag !== undefined && !/^\[iitams-[a-z0-9-]+\]$/.test(tag)) {
+      throw new Error("Refused: a fixture cleanup tag must look like [iitams-test-name]");
+    }
+
+    const requested = args.maxRisks ?? 10;
+    const maxRisks = Math.min(Math.max(Math.floor(requested), 1), 25);
+    const risks = await ctx.db
+      .query("risks")
+      .withIndex("by_organization", (q) => q.eq("organizationId", org._id))
+      .take(200);
+    const removable = risks.filter((risk) =>
+      tag ? risk.title.startsWith(tag) : !baselines.includes(risk.code),
+    );
+    const batch = removable.slice(0, maxRisks);
+
+    let deletedPlans = 0;
+    let deletedActions = 0;
+    let deletedAssessments = 0;
+    for (const risk of batch) {
+      const plans = await ctx.db
+        .query("riskTreatmentPlans")
+        .withIndex("by_organization_risk", (q) =>
+          q.eq("organizationId", org._id).eq("riskId", risk._id),
+        )
+        .take(100);
+      for (const plan of plans) {
+        const actions = await ctx.db
+          .query("riskTreatmentActions")
+          .withIndex("by_plan", (q) => q.eq("planId", plan._id))
+          .take(100);
+        for (const action of actions) {
+          if (action.organizationId !== org._id) continue;
+          await ctx.db.delete(action._id);
+          deletedActions += 1;
+        }
+        await ctx.db.delete(plan._id);
+        deletedPlans += 1;
+      }
+      const assessments = await ctx.db
+        .query("riskAssessments")
+        .withIndex("by_organization_risk", (q) =>
+          q.eq("organizationId", org._id).eq("riskId", risk._id),
+        )
+        .take(200);
+      for (const assessment of assessments) {
+        await ctx.db.delete(assessment._id);
+        deletedAssessments += 1;
+      }
+      await ctx.db.delete(risk._id);
+    }
+
+    return {
+      deletedRisks: batch.length,
+      deletedPlans,
+      deletedActions,
+      deletedAssessments,
+      remaining: Math.max(removable.length - batch.length, 0),
+    };
   },
 });

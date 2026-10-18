@@ -89,6 +89,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "ICT Risk",
     icon: AlertTriangle,
     items: [
+      { label: "Risk Monitoring", path: "/risk/monitoring", icon: Activity, permission: "risk" },
       { label: "Risk Register", path: "/risk/register", icon: Waypoints, permission: "risk" },
       { label: "Risk Assessments", path: "/risk/assessments", icon: Gauge, permission: "risk", phase2: true },
       { label: "Risk Treatments", path: "/risk/treatments", icon: LifeBuoy, permission: "risk", phase2: true },

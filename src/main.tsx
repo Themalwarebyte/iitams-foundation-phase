@@ -107,6 +107,11 @@ const RiskRegisterPage = lazy(() =>
     default: m.RiskRegisterPage,
   })),
 );
+const RiskMonitoringPage = lazy(() =>
+  import("./components/iitams/risk/RiskMonitoringPage").then((m) => ({
+    default: m.RiskMonitoringPage,
+  })),
+);
 const AdminAccessReviewsPage = lazy(() =>
   import("./components/iitams/admin/AdminAccessReviewsPage").then((m) => ({
     default: m.AdminAccessReviewsPage,
@@ -290,6 +295,17 @@ createRoot(document.getElementById("root")!).render(
                 />
               ))}
               {/* Phase 3B — ICT Risk Management */}
+              <Route
+                path="/risk/monitoring"
+                element={
+                  <RequireAuth
+                    title="Sign in to open Risk Monitoring"
+                    description="Risk monitoring and treatment oversight are available to authorized users of your organization."
+                  >
+                    <RiskMonitoringPage />
+                  </RequireAuth>
+                }
+              />
               <Route
                 path="/risk/register"
                 element={

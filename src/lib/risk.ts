@@ -87,3 +87,131 @@ export const RISK_TEXT_MAX = 4000;
 export const RISK_TITLE_MAX = 200;
 export const RISK_OWNER_MAX = 120;
 export const RISK_ASSET_MAX = 200;
+export const RISK_ACTION_REFERENCE_MAX = 500;
+
+// ---------------------------------------------------------------------------
+// Treatment plans and actions (Phase 3B — Batch 2B)
+// ---------------------------------------------------------------------------
+// A treatment plan records HOW an assessed risk will be handled. Selecting the
+// `accept` strategy records a documented PROPOSAL only: it never approves the
+// risk, changes its register status or reduces its residual score. Residual
+// risk moves solely through the assessment workflow (riskAssessments.ts).
+
+export const TREATMENT_STRATEGIES = [
+  "mitigate",
+  "avoid",
+  "transfer",
+  "accept",
+] as const;
+export type TreatmentStrategy = (typeof TREATMENT_STRATEGIES)[number];
+
+export const TREATMENT_STRATEGY_LABELS: Record<TreatmentStrategy, string> = {
+  mitigate: "Mitigate",
+  avoid: "Avoid",
+  transfer: "Transfer",
+  accept: "Accept (proposal)",
+};
+
+export const TREATMENT_STATUSES = [
+  "planned",
+  "in_progress",
+  "completed",
+  "cancelled",
+] as const;
+export type TreatmentStatus = (typeof TREATMENT_STATUSES)[number];
+
+export const TREATMENT_STATUS_LABELS: Record<TreatmentStatus, string> = {
+  planned: "Planned",
+  in_progress: "In progress",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+/**
+ * Controlled state machine for plans and actions. Completed and cancelled are
+ * terminal: history is preserved by adding a new record, never by reopening.
+ */
+export const TREATMENT_TRANSITIONS: Record<TreatmentStatus, TreatmentStatus[]> =
+  {
+    planned: ["in_progress", "cancelled"],
+    in_progress: ["completed", "cancelled"],
+    completed: [],
+    cancelled: [],
+  };
+
+/** True when `next` is an allowed transition from `current`. */
+export function canTransitionTreatment(
+  current: TreatmentStatus,
+  next: TreatmentStatus,
+): boolean {
+  return TREATMENT_TRANSITIONS[current].includes(next);
+}
+
+/** Statuses an authorized user may move a plan or action to right now. */
+export function nextTreatmentStatuses(
+  current: TreatmentStatus,
+): TreatmentStatus[] {
+  return TREATMENT_TRANSITIONS[current];
+}
+
+/** A treatment action counts as overdue while it is open and past its due date. */
+export function isTreatmentActionOverdue(
+  action: { status: TreatmentStatus; dueDate: number },
+  now: number,
+): boolean {
+  return (
+    action.status !== "completed" &&
+    action.status !== "cancelled" &&
+    action.dueDate < now
+  );
+}
+
+export interface TreatmentProgress {
+  total: number;
+  planned: number;
+  inProgress: number;
+  completed: number;
+  cancelled: number;
+  overdue: number;
+  /** Completed share of the non-cancelled actions (0–100). */
+  progressPct: number;
+}
+
+/** Progress is derived from stored actions — never a separate counter. */
+export function treatmentProgress(
+  actions: Array<{ status: TreatmentStatus; dueDate: number }>,
+  now: number,
+): TreatmentProgress {
+  const progress: TreatmentProgress = {
+    total: actions.length,
+    planned: 0,
+    inProgress: 0,
+    completed: 0,
+    cancelled: 0,
+    overdue: 0,
+    progressPct: 0,
+  };
+  for (const action of actions) {
+    if (action.status === "planned") progress.planned += 1;
+    else if (action.status === "in_progress") progress.inProgress += 1;
+    else if (action.status === "completed") progress.completed += 1;
+    else progress.cancelled += 1;
+    if (isTreatmentActionOverdue(action, now)) progress.overdue += 1;
+  }
+  const applicable = progress.total - progress.cancelled;
+  progress.progressPct =
+    applicable === 0 ? 0 : Math.round((progress.completed / applicable) * 100);
+  return progress;
+}
+
+// ---------------------------------------------------------------------------
+// Treatment validators
+// ---------------------------------------------------------------------------
+
+export const treatmentStrategyValidator = v.union(
+  ...TREATMENT_STRATEGIES.map((s) => v.literal(s)),
+);
+
+export const treatmentStatusValidator = v.union(
+  ...TREATMENT_STATUSES.map((s) => v.literal(s)),
+);
