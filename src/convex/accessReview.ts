@@ -265,33 +265,61 @@ async function capturePage(
 // Queries
 // ---------------------------------------------------------------------------
 
-/** Organisation-scoped review cycles with progress counts. */
+/**
+ * Organisation-scoped review cycles with progress counts.
+ *
+ * Reads are explicitly bounded: Convex enforces a 32,000-document / 16 MB
+ * limit per function execution, so an unbounded scan of every historical cycle
+ * plus every snapshot item eventually fails outright (it did once enough demo
+ * cycles accumulated).
+ *
+ * The list is CURSOR-PAGINATED over the `by_organization` index (newest first),
+ * so every historical cycle stays reachable without reading the whole history
+ * into memory in one execution. Each page caps the evidence it summarises;
+ * `captureScanComplete` on the cycle still reports whether its snapshot was
+ * fully captured.
+ */
+const CYCLE_PAGE_DEFAULT = 25;
+const CYCLE_PAGE_MAX = 50;
+const CYCLE_ITEM_LIMIT = 300;
+const CYCLE_DECISION_LIMIT = 300;
+const CYCLE_REMEDIATION_LIMIT = 100;
+
 export const listCycles = query({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    cursor: v.optional(v.string()),
+    numItems: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
     const org = await requireViewerContext(ctx);
-    const cycles = await ctx.db
+    const requested = args.numItems ?? CYCLE_PAGE_DEFAULT;
+    const numItems = Math.min(
+      Math.max(Number.isFinite(requested) ? Math.floor(requested) : CYCLE_PAGE_DEFAULT, 1),
+      CYCLE_PAGE_MAX,
+    );
+    const page = await ctx.db
       .query("accessReviewCycles")
       .withIndex("by_organization", (q) =>
         q.eq("organizationId", org.organizationId),
       )
-      .collect();
+      .order("desc")
+      .paginate({ numItems, cursor: args.cursor ?? null });
 
     const now = Date.now();
     const rows = [];
-    for (const cycle of cycles.sort((a, b) => b.createdAt - a.createdAt)) {
+    for (const cycle of page.page) {
       const items = await ctx.db
         .query("accessReviewItems")
         .withIndex("by_cycle", (q) => q.eq("cycleId", cycle._id))
-        .collect();
+        .take(CYCLE_ITEM_LIMIT);
       const decisions = await ctx.db
         .query("accessReviewDecisions")
         .withIndex("by_cycle", (q) => q.eq("cycleId", cycle._id))
-        .collect();
+        .take(CYCLE_DECISION_LIMIT);
       const remediations = await ctx.db
         .query("accessReviewRemediations")
         .withIndex("by_cycle", (q) => q.eq("cycleId", cycle._id))
-        .collect();
+        .take(CYCLE_REMEDIATION_LIMIT);
 
       const decidedItems = new Set(decisions.map((d) => d.itemId));
       rows.push({
@@ -318,7 +346,11 @@ export const listCycles = query({
           .length,
       });
     }
-    return rows;
+    return {
+      rows,
+      continueCursor: page.continueCursor,
+      isDone: page.isDone,
+    };
   },
 });
 

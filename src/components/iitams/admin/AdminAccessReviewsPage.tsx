@@ -897,9 +897,41 @@ function CycleDetail({
 // Page
 // ---------------------------------------------------------------------------
 
+/** Shape returned by the cursor-paginated `accessReview.listCycles`. */
+type CycleRow = {
+  _id: Id<"accessReviewCycles">;
+  title: string;
+  dueAt: number;
+  status: string;
+  decidedCount: number;
+  itemCount: number;
+  captureScanComplete: boolean;
+  overdue: boolean;
+};
+
+type CyclePage = {
+  rows: CycleRow[];
+  continueCursor: string;
+  isDone: boolean;
+};
+
 export function AdminAccessReviewsPage() {
   const session = useQuery(api.session.getSession);
-  const cycles = useQuery(api.accessReview.listCycles, {});
+  // Cursor pagination: the newest page is live; older pages are appended when
+  // the user asks for them, so every historical cycle stays reachable without
+  // reading the whole history in one query execution.
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [olderRows, setOlderRows] = useState<CycleRow[]>([]);
+  const page = useQuery(
+    api.accessReview.listCycles,
+    cursor ? { cursor } : {},
+  ) as CyclePage | undefined;
+  const cycles = useMemo(() => {
+    if (!page) return undefined;
+    const byId = new Map<string, CycleRow>();
+    for (const row of [...olderRows, ...page.rows]) byId.set(row._id, row);
+    return [...byId.values()];
+  }, [page, olderRows]);
   const [selectedId, setSelectedId] = useState<Id<"accessReviewCycles"> | null>(
     null,
   );
@@ -985,6 +1017,19 @@ export function AdminAccessReviewsPage() {
                   </button>
                 );
               })}
+              {page && !page.isDone && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => {
+                    setOlderRows((prev) => [...prev, ...page.rows]);
+                    setCursor(page.continueCursor);
+                  }}
+                >
+                  Load older cycles
+                </Button>
+              )}
             </nav>
 
             {activeSelection && (

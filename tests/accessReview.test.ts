@@ -185,6 +185,19 @@ type CaptureResult = {
   scanComplete: boolean;
 };
 
+type CyclePage = {
+  rows: Array<{
+    _id: string;
+    title: string;
+    status: string;
+    createdAt: number;
+    itemCount: number;
+    captureScanComplete: boolean;
+  }>;
+  continueCursor: string;
+  isDone: boolean;
+};
+
 // ============================================================================
 // Structural guards (no deployment required)
 // ============================================================================
@@ -310,6 +323,20 @@ describe("Batch A3 — access review structural guards", () => {
     // Duplicate prevention is structural: one snapshot per (cycle, member).
     expect(schemaSrc).toContain('by_cycle_target');
     expect(src).toContain("alreadyCaptured");
+  });
+
+  test("the cycle list is cursor-paginated instead of silently truncated", () => {
+    const listIdx = src.indexOf("export const listCycles = query({");
+    const listBody = src.slice(listIdx, listIdx + 2400);
+    // Indexed, newest-first pagination — not an in-memory slice of a full scan.
+    expect(listBody).toContain(".order(\"desc\")");
+    expect(listBody).toContain(".paginate({");
+    expect(listBody).toContain("cursor: args.cursor ?? null");
+    expect(listBody).toContain("continueCursor: page.continueCursor");
+    expect(listBody).not.toContain(".collect()");
+    // The UI exposes the remaining history rather than hiding it.
+    expect(pageSrc).toContain("continueCursor");
+    expect(pageSrc).toContain("Load older cycles");
   });
 });
 
@@ -752,6 +779,79 @@ describe("Batch A3 — access review runtime", () => {
           })
           .then((r) => JSON.stringify(r)),
       ).rejects.toThrow(/still have no decision/i);
+    },
+    180000,
+  );
+
+  test(
+    "cursor pagination keeps every historical cycle reachable beyond one page",
+    async () => {
+      if (!(await serverUp()) || !harnessConfigured) {
+        throw new Error("[test:PREREQ-FAILED] backend/harness unavailable");
+      }
+      const admin = await adminClientWithGrant();
+      if (!admin) {
+        throw new Error("[test:PREREQ-FAILED] trusted-runner admin grant unavailable");
+      }
+
+      const suffix = uniq();
+      // 30 cycles deliberately exceeds the 25-row default page. Empty-scope
+      // cycles keep the fixture cheap (no membership snapshots needed).
+      const createdIds: string[] = [];
+      for (let i = 0; i < 30; i += 1) {
+        const created = (await admin.mutation(api.accessReview.createCycle, {
+          title: `Pagination cycle ${suffix}-${i}`,
+          dueAt: Date.now() + (7 + i) * DAY,
+          captureMembers: false,
+        })) as { cycleId: string };
+        createdIds.push(created.cycleId);
+      }
+
+      // Page 1: newest first, exactly the default page size, more available.
+      const first = (await admin.query(api.accessReview.listCycles, {})) as CyclePage;
+      expect(first.rows).toHaveLength(25);
+      expect(first.isDone).toBe(false);
+      expect(typeof first.continueCursor).toBe("string");
+      expect(first.continueCursor.length).toBeGreaterThan(0);
+      for (let i = 1; i < first.rows.length; i += 1) {
+        expect(first.rows[i - 1].createdAt).toBeGreaterThanOrEqual(
+          first.rows[i].createdAt,
+        );
+      }
+
+      // Walk the remaining pages: every cycle is reachable, none duplicated.
+      const seen: string[] = first.rows.map((r) => r._id);
+      let cursor: string | null = first.continueCursor;
+      let pages = 1;
+      while (cursor && pages < 40) {
+        const next = (await admin.query(api.accessReview.listCycles, {
+          cursor,
+        })) as CyclePage;
+        pages += 1;
+        expect(next.rows.length).toBeLessThanOrEqual(25);
+        for (const row of next.rows) seen.push(row._id);
+        cursor = next.isDone ? null : next.continueCursor;
+      }
+      expect(cursor).toBeNull();
+      expect(pages).toBeGreaterThan(1);
+      expect(new Set(seen).size).toBe(seen.length);
+      for (const id of createdIds) {
+        expect(seen).toContain(id);
+      }
+
+      // Page size is clamped server-side: a caller cannot request the world.
+      const clamped = (await admin.query(api.accessReview.listCycles, {
+        numItems: 10_000,
+      })) as CyclePage;
+      expect(clamped.rows.length).toBeLessThanOrEqual(50);
+
+      // A non-administrator still gets nothing, cursor or not.
+      const member = await signInAnonymous();
+      await expect(
+        member
+          .query(api.accessReview.listCycles, { cursor: first.continueCursor })
+          .then((r) => JSON.stringify(r)),
+      ).rejects.toThrow(/Permission denied/i);
     },
     180000,
   );
