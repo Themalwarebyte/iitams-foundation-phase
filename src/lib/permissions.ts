@@ -10,7 +10,11 @@ export interface PermissionSet {
   /** Mirrors the server-side audit.manage permission (create/edit workflows). */
   auditManage: boolean;
   risk: boolean;
+  /** Mirrors the server-side risk.manage permission (register writes). */
+  riskManage?: boolean;
   compliance: boolean;
+  /** Mirrors the server-side compliance.manage permission (framework/control writes). */
+  complianceManage?: boolean;
   cyber: boolean;
   bcm: boolean;
   reports: boolean;
@@ -24,7 +28,9 @@ export const DEFAULT_PERMISSIONS: PermissionSet = {
   audit: false,
   auditManage: false,
   risk: false,
+  riskManage: false,
   compliance: false,
+  complianceManage: false,
   cyber: false,
   bcm: false,
   reports: false,

@@ -14,6 +14,12 @@ import {
   treatmentStatusValidator,
   treatmentStrategyValidator,
 } from "../lib/risk";
+import {
+  complianceFrameworkStatusValidator,
+  controlApplicabilityValidator,
+  controlDomainValidator,
+  controlImplementationStatusValidator,
+} from "../lib/compliance";
 
 // ============================================================================
 // IDENTITY & ACCESS — roles (RBAC)
@@ -802,29 +808,85 @@ const schema = defineSchema(
     // ------------------------------------------------------------------
     // COMPLIANCE MANAGEMENT
     // ------------------------------------------------------------------
+    // Phase 3C Batch 1 extends the Phase-1 scaffold in place (no parallel
+    // tables): `complianceFrameworks` is the organization's ADOPTED framework
+    // register and `controls` is the control register linked to a framework.
+    // The three Phase-1 aggregate columns (totalControls, implementedControls,
+    // complianceScorePct) are now OPTIONAL and are no longer written by the
+    // application: a compliance percentage is only meaningful once assessment
+    // and control testing exist, so this module never fabricates one. Control
+    // implementation is reported from the stored control rows instead.
     complianceFrameworks: defineTable({
       organizationId: v.id("organizations"),
-      name: v.string(), // ISO 27001, NIST CSF, Data Protection Act 2019...
+      name: v.string(), // ISO/IEC 27001:2022, NIST CSF 2.0, DPA 2019...
+      // Canonicalized identifier within the organization (ISO-27001).
       code: v.string(),
-      totalControls: v.number(),
-      implementedControls: v.number(),
-      complianceScorePct: v.number(),
-      isDemo: v.optional(v.boolean()),
-      ...auditFields,
-    }).index("by_organization", ["organizationId"]),
-
-    controls: defineTable({
-      organizationId: v.id("organizations"),
-      frameworkId: v.optional(v.id("complianceFrameworks")),
-      code: v.string(),
-      name: v.string(),
-      effectiveness: controlEffectivenessValidator,
-      lastTestedAt: v.optional(v.number()),
+      version: v.optional(v.string()),
+      // Issuing authority / source of the framework text.
+      issuingAuthority: v.optional(v.string()),
+      description: v.optional(v.string()),
+      // Scope statement: which parts of the organization/framework apply.
+      scope: v.optional(v.string()),
+      effectiveDate: v.optional(v.number()),
+      // Lifecycle of this organization's adoption.
+      status: v.optional(complianceFrameworkStatusValidator),
+      // Creation metadata (auditFields carry createdAt/updatedAt).
+      createdByUserId: v.optional(v.id("users")),
+      createdByLabel: v.optional(v.string()),
+      // LEGACY Phase-1 demo aggregates — retained for existing rows only.
+      totalControls: v.optional(v.number()),
+      implementedControls: v.optional(v.number()),
+      complianceScorePct: v.optional(v.number()),
       isDemo: v.optional(v.boolean()),
       ...auditFields,
     })
       .index("by_organization", ["organizationId"])
-      .index("by_effectiveness", ["organizationId", "effectiveness"]),
+      // Unique framework identifier within the organization.
+      .index("by_organization_code", ["organizationId", "code"])
+      .index("by_organization_status", ["organizationId", "status"]),
+
+    controls: defineTable({
+      organizationId: v.id("organizations"),
+      frameworkId: v.optional(v.id("complianceFrameworks")),
+      // Control identifier — the framework's own clause code (A.5.1…).
+      code: v.string(),
+      // Title of the control (label in the register).
+      name: v.string(),
+      description: v.optional(v.string()),
+      domain: v.optional(controlDomainValidator),
+      objective: v.optional(v.string()),
+      // Requirement / source reference in the framework text.
+      sourceReference: v.optional(v.string()),
+      applicability: v.optional(controlApplicabilityValidator),
+      ownerUserId: v.optional(v.id("users")),
+      ownerName: v.optional(v.string()),
+      // Operational implementation state. This is NOT a test result: the
+      // separate `effectiveness` column stays `not_tested` until control
+      // testing exists, so implementation is never presented as assurance.
+      implementationStatus: v.optional(controlImplementationStatusValidator),
+      effectiveness: controlEffectivenessValidator,
+      lastTestedAt: v.optional(v.number()),
+      createdByUserId: v.optional(v.id("users")),
+      createdByLabel: v.optional(v.string()),
+      isDemo: v.optional(v.boolean()),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_effectiveness", ["organizationId", "effectiveness"])
+      // Identifier uniqueness: one code per organization, and one code per
+      // (organization, framework) — the framework-scoped scope the register
+      // enforces.`by_organization_code` also covers unlinked controls.
+      .index("by_organization_code", ["organizationId", "code"])
+      .index("by_organization_framework", ["organizationId", "frameworkId"])
+      .index("by_organization_framework_code", [
+        "organizationId",
+        "frameworkId",
+        "code",
+      ])
+      .index("by_organization_implementation", [
+        "organizationId",
+        "implementationStatus",
+      ]),
 
     // ------------------------------------------------------------------
     // CYBERSECURITY ASSURANCE & VULNERABILITY MANAGEMENT

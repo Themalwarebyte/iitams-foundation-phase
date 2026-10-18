@@ -112,6 +112,12 @@ const RiskMonitoringPage = lazy(() =>
     default: m.RiskMonitoringPage,
   })),
 );
+const ComplianceFrameworksPage = lazy(
+  () => import("./components/iitams/compliance/ComplianceFrameworksPage"),
+);
+const ComplianceControlsPage = lazy(
+  () => import("./components/iitams/compliance/ComplianceControlsPage"),
+);
 const AdminAccessReviewsPage = lazy(() =>
   import("./components/iitams/admin/AdminAccessReviewsPage").then((m) => ({
     default: m.AdminAccessReviewsPage,
@@ -206,9 +212,7 @@ const MODULE_ROUTES = [
   "/risk/treatments",
   "/risk/heat-map",
   "/risk/trends",
-  // Compliance
-  "/compliance/frameworks",
-  "/compliance/controls",
+  // Compliance (frameworks and controls have dedicated Phase-3C routes below)
   "/compliance/assessments",
   "/compliance/control-testing",
   "/compliance/evidence-mapping",
@@ -314,6 +318,29 @@ createRoot(document.getElementById("root")!).render(
                     description="The ICT risk register is available to authorized users of your organization."
                   >
                     <RiskRegisterPage />
+                  </RequireAuth>
+                }
+              />
+              {/* Phase 3C — Compliance framework catalogue and control register */}
+              <Route
+                path="/compliance/frameworks"
+                element={
+                  <RequireAuth
+                    title="Sign in to open the framework directory"
+                    description="Adopted compliance frameworks are available to authorized users of your organization."
+                  >
+                    <ComplianceFrameworksPage />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/compliance/controls"
+                element={
+                  <RequireAuth
+                    title="Sign in to open the control register"
+                    description="The control register is available to authorized users of your organization."
+                  >
+                    <ComplianceControlsPage />
                   </RequireAuth>
                 }
               />

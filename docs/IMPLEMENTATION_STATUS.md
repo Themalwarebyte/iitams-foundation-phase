@@ -56,6 +56,23 @@
 | Tests (structural + runtime + two-organization isolation + Chromium journey) | ✅ | `tests/risk.test.ts`, `tests/risk.tenant.test.ts`, `tests/browser.risk-register.test.ts` |
 | Risk assessments & review history (insert-only snapshots, register stays current) | ✅ | `src/convex/riskAssessments.ts`, `tests/riskAssessments.test.ts` |
 | Risk treatment plans & actions (separate action records, controlled states, overdue/progress summaries; treatment never changes residual scores) | ✅ | `src/convex/riskTreatment.ts`, `src/components/iitams/risk/RiskTreatmentPlans.tsx`, `tests/riskTreatment.test.ts` |
+| Risk monitoring & treatment oversight (read-only KPIs, bands, assessment trend, oversight, paginated monitored list) | ✅ | `src/convex/riskMonitoring.ts`, `/risk/monitoring`, `tests/riskMonitoring.test.ts`, `tests/browser.risk-monitoring.test.ts` |
+| Access-review cycle pagination (cursor over the organization index, every historical cycle reachable) | ✅ | `src/convex/accessReview.ts`, `/admin/access-reviews`, `tests/accessReview.test.ts` |
+
+## Phase 3C — Batch 1: compliance framework catalogue and control register *(uncommitted, awaiting review)*
+
+| Workstream | Status | Evidence |
+| --- | --- | --- |
+| Adopted framework register (identifier, version, issuing authority, description, scope, effective date, lifecycle status, creation metadata) | ✅ | `src/convex/compliance.ts`, `/compliance/frameworks` |
+| Control register linked to a framework (identifier, title, description, domain, objective, source reference, applicability, owner, implementation status) | ✅ | `src/convex/compliance.ts`, `/compliance/controls` |
+| Shared vocabulary + identifier rules (framework/control validators, domains, statuses) | ✅ | `src/lib/compliance.ts` |
+| Authorization: `compliance.view` / `compliance.manage` + active membership, organization derived server-side, cross-tenant denial | ✅ | `src/convex/compliance.ts`, `src/convex/access.ts` (existing registry) |
+| Identifier uniqueness (per organization for frameworks, per framework for controls) | ✅ | `complianceFrameworks.by_organization_code`, `controls.by_organization_framework_code` |
+| Append-only audit logging for every write (actor, organization, framework attribution) | ✅ | `compliance.framework_created/updated`, `compliance.control_created/updated` |
+| No fabricated compliance percentage or test result (`effectiveness` stays `not_tested`) | ✅ | `src/convex/compliance.ts`, `src/convex/dashboard.ts` (null score until assessed) |
+| Tests (structural + runtime + cross-tenant + audit integrity + Chromium journey) | ✅ | `tests/compliance.test.ts`, `tests/browser.compliance.test.ts` |
+
+Not in this batch (by design): control testing, evidence mapping, compliance assessments and automated scoring.
 
 ## Phase 3 — Recommended next (not started)
 

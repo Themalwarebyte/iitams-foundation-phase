@@ -129,13 +129,22 @@ export const executive = query({
     const orderedTrends = [...trends].sort((a, b) => a.periodStart - b.periodStart);
 
     // --- Compliance -----------------------------------------------------
+    // Phase 3C Batch 1: the framework register no longer stores a compliance
+    // percentage, so the executive figure is derived ONLY from the legacy
+    // Phase-1 demo rows that still carry one. With no such row the honest
+    // answer is "no score yet" (null) rather than a fabricated 0%.
+    const scoredFrameworks = frameworks.filter(
+      (f) => typeof f.complianceScorePct === "number",
+    );
     const complianceScore =
-      frameworks.length > 0
+      scoredFrameworks.length > 0
         ? Math.round(
-            frameworks.reduce((sum, f) => sum + f.complianceScorePct, 0) /
-              frameworks.length,
+            scoredFrameworks.reduce(
+              (sum, f) => sum + (f.complianceScorePct ?? 0),
+              0,
+            ) / scoredFrameworks.length,
           )
-        : 0;
+        : null;
     const testedControls = controls.filter((c) => c.effectiveness !== "not_tested");
     const effectiveControls = controls.filter(
       (c) => c.effectiveness === "effective",
@@ -243,7 +252,8 @@ export const executive = query({
             .length,
         },
         frameworkScores: frameworks
-          .map((f) => ({ name: f.name, score: f.complianceScorePct }))
+          .filter((f) => typeof f.complianceScorePct === "number")
+          .map((f) => ({ name: f.name, score: f.complianceScorePct as number }))
           .sort((a, b) => a.score - b.score),
       },
       trends: orderedTrends.map((t) => ({

@@ -155,13 +155,17 @@ export default function Dashboard() {
               />
               <KpiCard
                 label="Compliance score"
-                value={data.kpis.complianceScorePct}
-                suffix="%"
+                value={data.kpis.complianceScorePct ?? "—"}
+                suffix={data.kpis.complianceScorePct === null ? undefined : "%"}
                 icon={ShieldCheck}
                 tone="success"
-                hint="Mean across frameworks"
-                tooltip="Average implemented-control percentage across tracked frameworks."
-                href="/compliance/dashboard"
+                hint={
+                  data.kpis.complianceScorePct === null
+                    ? "No assessed framework yet"
+                    : "Mean across frameworks"
+                }
+                tooltip="Average implemented-control percentage across tracked frameworks. Compliance Batch 1 records frameworks and controls only — no score is asserted until assessment and control testing exist."
+                href="/compliance/frameworks"
               />
               <KpiCard
                 label="Control effectiveness"

@@ -31,6 +31,9 @@ import { guestAuthEnabled } from "./access";
  *    never touch auditLogs, so repeat runs cannot grow the fixture data
  *    indefinitely while the audit trail stays append-only.
  */
+/** Dedicated compliance-manager fixture identity (tenant M only). */
+export const COMPLIANCE_FIXTURE_EMAIL = "compliance-manager-m@iitams.test";
+
 export const ensureTenantFixtures = internalMutation({
   args: {},
   handler: async (ctx) => {
@@ -174,6 +177,74 @@ export const ensureTenantFixtures = internalMutation({
       });
     }
 
+    // Tenant M additionally carries a COMPLIANCE MANAGER identity. Compliance
+    // writes require `compliance.manage`, which no read-only role holds, so the
+    // compliance suite needs one writer in a disposable organization. It lives
+    // in tenant M only: tenants A and B stay at the ordinary `user` role, which
+    // keeps the read-only assertions of the risk suites intact.
+    let complianceAdmin: {
+      organizationId: string;
+      organizationCode: string;
+      userId: string;
+      email: string;
+    } | null = null;
+    const tenantM = organizations.find(
+      (o) => o.organizationCode === "IITAMS-TEST-M",
+    );
+    if (tenantM) {
+      const email = COMPLIANCE_FIXTURE_EMAIL;
+      let fixtureUser = await ctx.db
+        .query("users")
+        .withIndex("email", (q) => q.eq("email", email))
+        .unique();
+      if (fixtureUser && fixtureUser.isAnonymous === true) {
+        throw new Error(
+          `Refused: ${email} is an anonymous session, not a fixture identity`,
+        );
+      }
+      if (!fixtureUser) {
+        const userId = await ctx.db.insert("users", {
+          name: "IITAMS Test Tenant M compliance manager",
+          email,
+          emailVerificationTime: now,
+          isAnonymous: false,
+        });
+        fixtureUser = await ctx.db.get(userId);
+      }
+      if (!fixtureUser) throw new Error("Fixture identity could not be created");
+
+      const profile = await ctx.db
+        .query("userProfiles")
+        .withIndex("userId", (q) => q.eq("userId", fixtureUser._id))
+        .unique();
+      if (
+        profile?.organizationId !== undefined &&
+        profile.organizationId !== (tenantM.organizationId as never)
+      ) {
+        throw new Error(
+          `Refused: ${email} already belongs to another organization (fixtures never migrate memberships)`,
+        );
+      }
+      if (!profile) {
+        await ctx.db.insert("userProfiles", {
+          userId: fixtureUser._id,
+          organizationId: tenantM.organizationId as never,
+          // Admin ONLY inside the disposable, demo-flagged fixture tenant: it
+          // is the minimum role in the registry that holds compliance.manage.
+          role: "admin",
+          jobTitle: "Compliance fixture manager",
+          membershipStatus: "active",
+          lastSeenAt: now,
+        });
+      }
+      complianceAdmin = {
+        organizationId: tenantM.organizationId,
+        organizationCode: tenantM.organizationCode,
+        userId: String(fixtureUser._id),
+        email,
+      };
+    }
+
     // Tenant B also carries an overdue-review fixture so the review-overdue
     // indicator can be verified against real data. Tenant A deliberately has
     // none, which lets the test prove the count does not leak across tenants.
@@ -207,7 +278,7 @@ export const ensureTenantFixtures = internalMutation({
       }
     }
 
-    return { organizations };
+    return { organizations, complianceAdmin };
   },
 });
 
@@ -263,6 +334,68 @@ export const deleteFixtureTreatmentPlan = internalMutation({
     }
     await ctx.db.delete(plan._id);
     return { deletedActions: actions.length, deletedPlans: 1 };
+  },
+});
+
+/**
+ * Remove the framework adoption and control records the compliance suite creates
+ * in its disposable fixture organization (IITAMS-TEST-M).
+ *
+ * Scope mirrors `resetFixtureRecords`: development deployments only, tenant M
+ * only while it is demo-flagged, bounded batches, and `auditLogs` are never
+ * touched (the compliance audit trail stays append-only).
+ */
+export const resetComplianceFixtures = internalMutation({
+  args: { maxRecords: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    if (!guestAuthEnabled()) {
+      throw new Error("Fixture cleanup is only available on development deployments");
+    }
+    const org = await fixtureOrganization(ctx, "IITAMS-TEST-M");
+    if (!org) {
+      return { deletedControls: 0, deletedFrameworks: 0, remaining: 0 };
+    }
+    const requested = args.maxRecords ?? 25;
+    const maxRecords = Math.min(Math.max(Math.floor(requested), 1), 50);
+
+    const controls = await ctx.db
+      .query("controls")
+      .withIndex("by_organization", (q) => q.eq("organizationId", org._id))
+      .take(200);
+    const controlBatch = controls.slice(0, maxRecords);
+    for (const control of controlBatch) {
+      await ctx.db.delete(control._id);
+    }
+
+    const frameworks = await ctx.db
+      .query("complianceFrameworks")
+      .withIndex("by_organization", (q) => q.eq("organizationId", org._id))
+      .take(200);
+    const frameworkBatch = [];
+    for (const framework of frameworks) {
+      if (frameworkBatch.length >= maxRecords) break;
+      // Re-read this framework's controls rather than trusting the page above:
+      // a framework is only removed once it has NO controls left, so the
+      // cleanup can never orphan register rows.
+      const remainingControls = await ctx.db
+        .query("controls")
+        .withIndex("by_organization_framework", (q) =>
+          q.eq("organizationId", org._id).eq("frameworkId", framework._id),
+        )
+        .first();
+      if (remainingControls) continue;
+      await ctx.db.delete(framework._id);
+      frameworkBatch.push(framework._id);
+    }
+
+    return {
+      deletedControls: controlBatch.length,
+      deletedFrameworks: frameworkBatch.length,
+      remaining: Math.max(
+        controls.length - controlBatch.length + frameworks.length - frameworkBatch.length,
+        0,
+      ),
+    };
   },
 });
 

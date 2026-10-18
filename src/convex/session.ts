@@ -59,6 +59,7 @@ export const getSession = query({
           risk: false,
           riskManage: false,
           compliance: false,
+          complianceManage: false,
           cyber: false,
           bcm: false,
           reports: false,
@@ -86,6 +87,9 @@ export const getSession = query({
       // Phase 3B — risk register writes (server checks risk.manage itself).
       riskManage: roleHasPermission(access.role, "risk.manage"),
       compliance: roleHasPermission(access.role, "compliance.view"),
+      // Phase 3C — compliance framework/control writes (the server checks
+      // compliance.manage itself; this only mirrors what the UI may offer).
+      complianceManage: roleHasPermission(access.role, "compliance.manage"),
       cyber: roleHasPermission(access.role, "cyber.view"),
       bcm: roleHasPermission(access.role, "bcm.view"),
       reports: roleHasPermission(access.role, "reports.view"),
