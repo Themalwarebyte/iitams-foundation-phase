@@ -15,10 +15,14 @@ import {
   treatmentStrategyValidator,
 } from "../lib/risk";
 import {
+  complianceEvidenceClassificationValidator,
   complianceFrameworkStatusValidator,
   controlApplicabilityValidator,
   controlDomainValidator,
   controlImplementationStatusValidator,
+  controlTestOutcomeValidator,
+  controlTestStatusValidator,
+  evidenceIntegrityValidator,
 } from "../lib/compliance";
 
 // ============================================================================
@@ -887,6 +891,120 @@ const schema = defineSchema(
         "organizationId",
         "implementationStatus",
       ]),
+
+    // ------------------------------------------------------------------
+    // COMPLIANCE CONTROL TESTING AND EVIDENCE MAPPING (Phase 3C — Batch 2)
+    // ------------------------------------------------------------------
+    // A control test records what was tested, how, by whom and what was
+    // observed. Tests are append-only in spirit: a COMPLETED row is final and
+    // never patched — a correction is a NEW record that supersedes it, so past
+    // results stay readable exactly as issued. No test ever writes to
+    // `controls.effectiveness`: a test outcome is reported, never applied.
+    complianceControlTests: defineTable({
+      organizationId: v.id("organizations"),
+      frameworkId: v.id("complianceFrameworks"),
+      controlId: v.id("controls"),
+      // Human-readable per-organization identifier (CT-001…).
+      reference: v.string(),
+      title: v.string(),
+      objective: v.string(),
+      procedure: v.string(),
+      testerUserId: v.optional(v.id("users")),
+      testerLabel: v.string(),
+      plannedStart: v.optional(v.number()),
+      plannedEnd: v.optional(v.number()),
+      actualStart: v.optional(v.number()),
+      actualEnd: v.optional(v.number()),
+      // Test period / sample information where applicable.
+      periodLabel: v.optional(v.string()),
+      sampleSize: v.optional(v.number()),
+      sampleDescription: v.optional(v.string()),
+      status: controlTestStatusValidator,
+      outcome: controlTestOutcomeValidator,
+      observations: v.optional(v.string()),
+      exceptions: v.optional(v.string()),
+      recommendations: v.optional(v.string()),
+      completionNotes: v.optional(v.string()),
+      // Documented reason completion proceeded WITHOUT mapped evidence. Exactly
+      // one of (an active evidence mapping, this exception) is required.
+      evidenceException: v.optional(v.string()),
+      completedAt: v.optional(v.number()),
+      completedByUserId: v.optional(v.id("users")),
+      completedByLabel: v.optional(v.string()),
+      // Amendment chain: set on the REPLACEMENT record, pointing at the test it
+      // supersedes. The original row is never modified.
+      supersedesTestId: v.optional(v.id("complianceControlTests")),
+      amendmentReason: v.optional(v.string()),
+      createdByUserId: v.id("users"),
+      createdByLabel: v.string(),
+      isDemo: v.optional(v.boolean()),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_control", ["organizationId", "controlId"])
+      .index("by_organization_framework", ["organizationId", "frameworkId"])
+      .index("by_organization_status", ["organizationId", "status"])
+      .index("by_organization_reference", ["organizationId", "reference"])
+      .index("by_organization_supersedes", [
+        "organizationId",
+        "supersedesTestId",
+      ]),
+
+    // Compliance evidence: bytes live in Convex file storage, metadata and the
+    // SERVER-computed SHA-256 stay here. Deliberately separate from the audit
+    // `evidence` table (which is engagement/working-paper shaped and gated by
+    // audit.manage) so compliance evidence can never leak into an audit view or
+    // inherit audit lifecycle semantics.
+    complianceEvidence: defineTable({
+      organizationId: v.id("organizations"),
+      // The control this evidence describes (and optionally the test it was
+      // gathered for); both are re-validated against the organization.
+      controlId: v.id("controls"),
+      testId: v.optional(v.id("complianceControlTests")),
+      filename: v.string(),
+      fileType: v.string(),
+      sizeBytes: v.number(),
+      classification: complianceEvidenceClassificationValidator,
+      source: v.optional(v.string()),
+      description: v.optional(v.string()),
+      // Server-computed integrity hash; empty until the hashing action runs.
+      sha256: v.string(),
+      integrity: evidenceIntegrityValidator,
+      integrityCheckedAt: v.optional(v.number()),
+      storageId: v.optional(v.id("_storage")),
+      uploadedById: v.id("users"),
+      uploadedByLabel: v.string(),
+      isDemo: v.optional(v.boolean()),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_control", ["organizationId", "controlId"])
+      .index("by_organization_test", ["organizationId", "testId"])
+      .index("by_organization_integrity", ["organizationId", "integrity"]),
+
+    // Evidence MAPPINGS are their own rows so unlinking is an auditable event
+    // rather than a deletion: the evidence record, its hash and the audit trail
+    // all survive an unlink.
+    complianceEvidenceMappings: defineTable({
+      organizationId: v.id("organizations"),
+      evidenceId: v.id("complianceEvidence"),
+      controlId: v.id("controls"),
+      testId: v.optional(v.id("complianceControlTests")),
+      linkedByUserId: v.id("users"),
+      linkedByLabel: v.string(),
+      linkedAt: v.number(),
+      active: v.boolean(),
+      unlinkedAt: v.optional(v.number()),
+      unlinkedByUserId: v.optional(v.id("users")),
+      unlinkedByLabel: v.optional(v.string()),
+      unlinkReason: v.optional(v.string()),
+      isDemo: v.optional(v.boolean()),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_evidence", ["organizationId", "evidenceId"])
+      .index("by_organization_test", ["organizationId", "testId"])
+      .index("by_organization_control", ["organizationId", "controlId"]),
 
     // ------------------------------------------------------------------
     // CYBERSECURITY ASSURANCE & VULNERABILITY MANAGEMENT

@@ -353,10 +353,49 @@ export const resetComplianceFixtures = internalMutation({
     }
     const org = await fixtureOrganization(ctx, "IITAMS-TEST-M");
     if (!org) {
-      return { deletedControls: 0, deletedFrameworks: 0, remaining: 0 };
+      return {
+        deletedControls: 0,
+        deletedFrameworks: 0,
+        deletedTests: 0,
+        deletedEvidence: 0,
+        deletedMappings: 0,
+        remaining: 0,
+      };
     }
     const requested = args.maxRecords ?? 25;
     const maxRecords = Math.min(Math.max(Math.floor(requested), 1), 50);
+
+    // Phase 3C Batch 2 records are removed first, innermost first, so a
+    // control is never deleted while tests, evidence or mappings still
+    // reference it. Evidence blobs are removed from storage as well, so the
+    // cleanup leaves no orphaned files behind.
+    const mappings = await ctx.db
+      .query("complianceEvidenceMappings")
+      .withIndex("by_organization", (q) => q.eq("organizationId", org._id))
+      .take(200);
+    const mappingBatch = mappings.slice(0, maxRecords * 4);
+    for (const mapping of mappingBatch) {
+      await ctx.db.delete(mapping._id);
+    }
+
+    const evidence = await ctx.db
+      .query("complianceEvidence")
+      .withIndex("by_organization", (q) => q.eq("organizationId", org._id))
+      .take(200);
+    const evidenceBatch = evidence.slice(0, maxRecords);
+    for (const record of evidenceBatch) {
+      if (record.storageId) await ctx.storage.delete(record.storageId);
+      await ctx.db.delete(record._id);
+    }
+
+    const tests = await ctx.db
+      .query("complianceControlTests")
+      .withIndex("by_organization", (q) => q.eq("organizationId", org._id))
+      .take(200);
+    const testBatch = tests.slice(0, maxRecords);
+    for (const test of testBatch) {
+      await ctx.db.delete(test._id);
+    }
 
     const controls = await ctx.db
       .query("controls")
@@ -374,9 +413,9 @@ export const resetComplianceFixtures = internalMutation({
     const frameworkBatch = [];
     for (const framework of frameworks) {
       if (frameworkBatch.length >= maxRecords) break;
-      // Re-read this framework's controls rather than trusting the page above:
-      // a framework is only removed once it has NO controls left, so the
-      // cleanup can never orphan register rows.
+      // Re-read this framework's children rather than trusting the pages above:
+      // a framework is only removed once it has NO controls and NO tests left,
+      // so the cleanup can never orphan register or test rows.
       const remainingControls = await ctx.db
         .query("controls")
         .withIndex("by_organization_framework", (q) =>
@@ -384,6 +423,13 @@ export const resetComplianceFixtures = internalMutation({
         )
         .first();
       if (remainingControls) continue;
+      const remainingTests = await ctx.db
+        .query("complianceControlTests")
+        .withIndex("by_organization_framework", (q) =>
+          q.eq("organizationId", org._id).eq("frameworkId", framework._id),
+        )
+        .first();
+      if (remainingTests) continue;
       await ctx.db.delete(framework._id);
       frameworkBatch.push(framework._id);
     }
@@ -391,8 +437,20 @@ export const resetComplianceFixtures = internalMutation({
     return {
       deletedControls: controlBatch.length,
       deletedFrameworks: frameworkBatch.length,
+      deletedTests: testBatch.length,
+      deletedEvidence: evidenceBatch.length,
+      deletedMappings: mappingBatch.length,
       remaining: Math.max(
-        controls.length - controlBatch.length + frameworks.length - frameworkBatch.length,
+        controls.length -
+          controlBatch.length +
+          frameworks.length -
+          frameworkBatch.length +
+          tests.length -
+          testBatch.length +
+          evidence.length -
+          evidenceBatch.length +
+          mappings.length -
+          mappingBatch.length,
         0,
       ),
     };

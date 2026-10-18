@@ -59,7 +59,11 @@ import {
   ComplianceUnauthorized,
   ImplementationStatusPill,
 } from "./CompliancePrimitives";
-import { KeyRound, Loader2, Plus, Search } from "lucide-react";
+import {
+  ComplianceTestingSummary,
+  ControlTestingPanel,
+} from "./ComplianceTestingPanel";
+import { FlaskConical, KeyRound, Loader2, Plus, Search } from "lucide-react";
 import { toast } from "sonner";
 
 /**
@@ -481,6 +485,7 @@ export function ComplianceControlsPage() {
     control: ControlRow | null;
   } | null>(null);
   const [detail, setDetail] = useState<ControlRow | null>(null);
+  const [testingTarget, setTestingTarget] = useState<ControlRow | null>(null);
 
   const frameworks = useQuery(
     api.compliance.listFrameworks,
@@ -532,7 +537,7 @@ export function ComplianceControlsPage() {
       <PageHeader
         eyebrow="Compliance"
         title="Control register"
-        description="Controls recorded against your adopted frameworks, with owner, applicability and implementation status. Implementation is an operational statement, not a test result or a compliance percentage."
+        description="Controls recorded against your adopted frameworks, with owner, applicability, implementation status and control testing. Implementation is an operational statement, not a test result; test outcomes are reported as recorded and no compliance percentage is calculated."
         actions={
           canManage ? (
             <Button
@@ -545,6 +550,8 @@ export function ComplianceControlsPage() {
           ) : undefined
         }
       />
+
+      <ComplianceTestingSummary />
 
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end">
         <div className="relative flex-1 lg:max-w-sm">
@@ -666,6 +673,7 @@ export function ComplianceControlsPage() {
                   <TableHead>Implementation</TableHead>
                   <TableHead>Applicability</TableHead>
                   <TableHead>Owner</TableHead>
+                  <TableHead>Testing</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
@@ -701,6 +709,16 @@ export function ComplianceControlsPage() {
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {row.ownerName ?? "—"}
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setTestingTarget(row)}
+                      >
+                        <FlaskConical className="mr-1 size-3.5" aria-hidden />
+                        Test history
+                      </Button>
                     </TableCell>
                     <TableCell className="text-right">
                       <Button
@@ -754,6 +772,14 @@ export function ComplianceControlsPage() {
             setDetail(null);
           }}
           onClose={() => setDetail(null)}
+        />
+      )}
+      {testingTarget && (
+        <ControlTestingPanel
+          controlId={testingTarget._id}
+          controlLabel={`${testingTarget.code} — ${testingTarget.title}`}
+          canManage={canManage}
+          onClose={() => setTestingTarget(null)}
         />
       )}
     </AppLayout>

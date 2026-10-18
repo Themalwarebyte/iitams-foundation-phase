@@ -138,7 +138,31 @@ async function reachDashboard(
     page.getByRole("heading", { name: "Executive Dashboard" }),
     25000,
   );
-  return ok ? { ok: true } : { ok: false, reason: "dashboard heading not visible" };
+  if (!ok) return { ok: false, reason: "dashboard heading not visible" };
+  // The dashboard renders before the demo membership finishes provisioning,
+  // so modules (and the search palette built from them) can briefly be empty.
+  // Wait for the provisioned session here, bounded, without asserting on it: a
+  // test that depends on module visibility then starts from a settled state.
+  await page
+    .waitForFunction(
+      async () => {
+        const qa = (window as unknown as Record<string, unknown>)
+          .__IITAMS_DEV_QA__ as
+          | { whoAmI?: () => Promise<{ isProvisioned?: boolean } | null> }
+          | undefined;
+        if (!qa?.whoAmI) return false;
+        try {
+          const session = await qa.whoAmI();
+          return session?.isProvisioned === true;
+        } catch {
+          return false;
+        }
+      },
+      undefined,
+      { timeout: 20000 },
+    )
+    .catch(() => undefined);
+  return { ok: true };
 }
 
 describe("IITAMS browser smoke", () => {
@@ -314,6 +338,15 @@ describe("IITAMS browser smoke", () => {
           `E2E GATE FAILED: dashboard not reachable for search test — ${reached.reason}`,
         );
       }
+
+      // The palette is built from the permission-filtered module list, which
+      // arrives with the session query after provisioning. Wait (bounded, no
+      // assertion) for a module only a provisioned member can see, so the
+      // palette is opened on a settled nav.
+      await page
+        .getByRole("link", { name: "Vulnerabilities", exact: true })
+        .waitFor({ state: "attached", timeout: 20000 })
+        .catch(() => undefined);
 
       await page.getByRole("button", { name: "Search modules" }).first().click();
       expect(await visible(page, page.getByRole("dialog"))).toBe(true);

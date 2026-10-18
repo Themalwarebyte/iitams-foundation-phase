@@ -366,10 +366,27 @@ describe("Compliance — structural guards", () => {
     // (the quoted table name only appears where the table is actually used),
     // and the shared demo organization is never targeted.
     expect(resetBody).not.toContain('"auditLogs"');
-    // Every deletion in the cleanup targets a control or framework row only.
-    for (const deletion of resetBody.matchAll(/ctx\.db\.delete\([^)]*/g)) {
-      expect(deletion[0]).toMatch(/control\._id|framework\._id/);
+    // Every row the cleanup can see comes from a compliance table of the
+    // fixture organization, and every deletion targets one of those rows —
+    // never a user, risk, audit or engagement record.
+    const queriedTables = new Set(
+      [...resetBody.matchAll(/\.query\("([^"]+)"\)/g)].map((m) => m[1]),
+    );
+    expect(queriedTables).toEqual(
+      new Set([
+        "complianceEvidenceMappings",
+        "complianceEvidence",
+        "complianceControlTests",
+        "controls",
+        "complianceFrameworks",
+      ]),
+    );
+    for (const deletion of resetBody.matchAll(/ctx\.db\.delete\(([\w.]+)\)/g)) {
+      expect(deletion[1]).toMatch(/^(mapping|record|test|control|framework)\._id$/);
     }
+    expect(resetBody).not.toContain("userProfiles");
+    expect(resetBody).not.toContain('"risks"');
+    expect(resetBody).not.toContain('"auditEngagements"');
     expect(resetBody).not.toContain("IITAMS-DEMO");
     expect(fixturesSrc).toContain('"IITAMS-TEST-M": ["R-001"]');
   });

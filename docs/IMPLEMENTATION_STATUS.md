@@ -59,7 +59,7 @@
 | Risk monitoring & treatment oversight (read-only KPIs, bands, assessment trend, oversight, paginated monitored list) | ✅ | `src/convex/riskMonitoring.ts`, `/risk/monitoring`, `tests/riskMonitoring.test.ts`, `tests/browser.risk-monitoring.test.ts` |
 | Access-review cycle pagination (cursor over the organization index, every historical cycle reachable) | ✅ | `src/convex/accessReview.ts`, `/admin/access-reviews`, `tests/accessReview.test.ts` |
 
-## Phase 3C — Batch 1: compliance framework catalogue and control register *(uncommitted, awaiting review)*
+## Phase 3C — Batch 1: compliance framework catalogue and control register *(committed — `feat(compliance): add framework and control registers`)*
 
 | Workstream | Status | Evidence |
 | --- | --- | --- |
@@ -73,6 +73,23 @@
 | Tests (structural + runtime + cross-tenant + audit integrity + Chromium journey) | ✅ | `tests/compliance.test.ts`, `tests/browser.compliance.test.ts` |
 
 Not in this batch (by design): control testing, evidence mapping, compliance assessments and automated scoring.
+
+## Phase 3C — Batch 2: control testing and evidence mapping *(uncommitted, awaiting review)*
+
+| Workstream | Status | Evidence |
+| --- | --- | --- |
+| Control tests linked to an organization-scoped framework + control (reference, objective, procedure, tester, planned/actual dates, period, sample, status, outcome, observations, exceptions, recommendations, completion notes) | ✅ | `src/convex/complianceTesting.ts`, `src/components/iitams/compliance/ComplianceTestingPanel.tsx` |
+| Explicit states (`planned` → `in_progress` → `completed`) with validated transitions; outcomes `effective` / `partially_effective` / `ineffective` / `not_tested` | ✅ | `src/lib/compliance.ts` (`canTransitionControlTest`, `isControlTestVerdict`) |
+| Completion requires a verdict, adequate notes, and active evidence or a documented missing-evidence exception; non-effective outcomes need observations/exceptions | ✅ | `completeControlTest` |
+| Completed tests immutable; corrections are new superseding records (`supersedesTestId`), history never rewritten | ✅ | `supersedeControlTest`, `presentTest` (derived `supersededByTestId`) |
+| Compliance evidence records (own table, not the audit-engagement `evidence` model) with server-side SHA-256 hashing via a scheduled action | ✅ | `complianceEvidence`, `computeEvidenceHash`, `recordEvidenceIntegrity` |
+| Evidence mappings as rows (`active`, `unlinkedAt`, `unlinkReason`); unlinking never deletes evidence, its hash or history | ✅ | `complianceEvidenceMappings`, `unlinkEvidenceMapping` |
+| Authorization: `compliance.view` reads, `compliance.manage` + active membership writes, server-derived organization, every id re-validated | ✅ | `resolveAccess`, `requireManager` |
+| Restricted evidence is not downloadable by read-only roles; every download and integrity check is audited | ✅ | `evidenceDownloadUrl`, `verifyEvidenceIntegrity` |
+| Reporting: real counts of planned/in-progress/completed tests, outcomes by latest completed test per control, evidence gaps — no compliance percentage | ✅ | `testingSummary`, `ComplianceTestingSummary` |
+| Tests (structural + runtime + cross-tenant + integrity + Chromium journey) | ✅ | `tests/complianceTesting.test.ts`, `tests/browser.compliance-testing.test.ts` |
+
+Not in this batch (by design): compliance scoring/percentages, control assessments against a maturity model, and automated effectiveness derivation.
 
 ## Phase 3 — Recommended next (not started)
 
