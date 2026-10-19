@@ -343,7 +343,12 @@ const schema = defineSchema(
       lastSeenAt: v.optional(v.number()),
     })
       .index("userId", ["userId"])
-      .index("by_organization", ["organizationId"]),
+      .index("by_organization", ["organizationId"])
+      // Role-scoped directory reads (e.g. the administrator lifecycle view).
+      // Scanning every profile in an organization to find a handful of
+      // administrators exceeds the function read budget once the demo org
+      // accumulates thousands of members, so the lookup must be indexed.
+      .index("by_organization_role", ["organizationId", "role"]),
 
     // ------------------------------------------------------------------
     // ADMINISTRATOR LIFECYCLE (Phase 3A — Batch A1)

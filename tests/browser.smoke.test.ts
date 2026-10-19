@@ -60,7 +60,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await browser?.close();
-});
+}, 60000);
 
 /** Gate: hard-fail in strict mode when prerequisites are missing. */
 function requireEnv(): void {

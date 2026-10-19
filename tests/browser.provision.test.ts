@@ -75,8 +75,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await browser?.close();
-await revokeAllEscalatedGuests();
-});
+  await revokeAllEscalatedGuests();
+}, 60000);
 
 function requireEnv(): void {
   if (!serverUp) {

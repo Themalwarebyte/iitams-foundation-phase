@@ -74,7 +74,7 @@ afterAll(async () => {
   await browser?.close();
   // Lifecycle discipline: revoke any privilege this run granted.
   await revokeAllEscalatedGuests();
-});
+}, 60000);
 
 function requireEnv(): void {
   if (!serverUp) {

@@ -78,8 +78,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await browser?.close();
-await revokeAllEscalatedGuests();
-});
+  await revokeAllEscalatedGuests();
+}, 60000);
 
 function requireEnv(): void {
   if (!serverUp) {
@@ -494,15 +494,39 @@ describe("IITAMS Phase 3A Batch 2B — effective membership with independent ses
       await row.getByRole("button", { name: "Suspend" }).click();
       // Directory reacts to the server-enforced lifecycle change.
       // StatusChip renders "Suspended" + a sr-only " status" suffix.
-      const chipVisible = await visible(a.page, row.getByText(/^Suspended/), 12000);
+      // The bounded directory page re-renders after the mutation and the
+      // pre-click row handle is detached by that re-render, so every poll
+      // re-locates the row instead of reusing the stale handle.
+      const chipRow = () =>
+        a.page.locator("tbody tr").filter({ hasText: email }).first();
+      let chipVisible = false;
+      const chipDeadline = Date.now() + 30000;
+      while (Date.now() < chipDeadline) {
+        if (
+          await chipRow()
+            .getByText(/^Suspended/)
+            .first()
+            .isVisible()
+            .catch(() => false)
+        ) {
+          chipVisible = true;
+          break;
+        }
+        await a.page.waitForTimeout(500);
+      }
       if (!chipVisible) {
         const toasts = await a.page
           .locator('[data-sonner-toast]')
           .allTextContents()
           .catch(() => []);
-        const rowText = await row.textContent().catch(() => null);
+        const rowText = await chipRow().textContent().catch(() => null);
+        const tableRows = await a.page.locator("tbody tr").count().catch(() => -1);
+        const mainText = await a.page
+          .locator("body")
+          .innerText()
+          .catch(() => "");
         throw new Error(
-          `Suspend did not reflect in the directory: toasts=${JSON.stringify(toasts)} row=${(rowText ?? "").slice(0, 300)}`,
+          `Suspend did not reflect in the directory: toasts=${JSON.stringify(toasts)} rows=${tableRows} url=${a.page.url()} errors=${JSON.stringify(a.errors)} row=${(rowText ?? "").slice(0, 200)} main=${mainText.slice(0, 600)}`,
         );
       }
       // (chipVisible above already confirms the server-enforced state; the

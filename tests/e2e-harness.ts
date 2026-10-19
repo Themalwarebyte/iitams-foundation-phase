@@ -145,14 +145,23 @@ export async function sweepExpiredDemoGrants(): Promise<number | null> {
  */
 export async function revokeAllEscalatedGuests(): Promise<void> {
   const targets = escalatedGuests.splice(0, escalatedGuests.length);
-  for (const userId of targets) {
-    try {
-      const res = await harnessPost("/api/dev-revoke-demo-role", { userId });
-      if (!res.ok) {
-        console.warn(`[teardown:WARN] revoke refused for the escalated guest (HTTP ${res.status})`);
-      }
-    } catch (err) {
-      console.warn(`[teardown:WARN] revoke failed: ${String(err).slice(0, 200)}`);
-    }
+  // Bounded parallelism: teardown runs inside a test hook, and a long suite can
+  // accumulate dozens of grants. Sequential round-trips can exceed the hook
+  // timeout; batches of 10 stay well inside the harness' request budget.
+  for (let i = 0; i < targets.length; i += 10) {
+    await Promise.all(
+      targets.slice(i, i + 10).map(async (userId) => {
+        try {
+          const res = await harnessPost("/api/dev-revoke-demo-role", { userId });
+          if (!res.ok) {
+            console.warn(
+              `[teardown:WARN] revoke refused for the escalated guest (HTTP ${res.status})`,
+            );
+          }
+        } catch (err) {
+          console.warn(`[teardown:WARN] revoke failed: ${String(err).slice(0, 200)}`);
+        }
+      }),
+    );
   }
 }

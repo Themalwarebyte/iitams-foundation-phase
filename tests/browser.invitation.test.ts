@@ -80,7 +80,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await browser?.close();
-});
+}, 60000);
 
 function requireEnv(): void {
   if (!serverUp) {

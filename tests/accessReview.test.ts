@@ -1,8 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ConvexHttpClient } from "convex/browser";
-import { api } from "../src/convex/_generated/api";
+import { api, internal } from "../src/convex/_generated/api";
 
 /**
  * Phase 3A — Batch A3: access reviews & recertification foundation.
@@ -46,6 +46,50 @@ async function serverUp(): Promise<boolean> {
     return false;
   }
 }
+
+function devAdminKey(): string | null {
+  try {
+    const parsed = JSON.parse(
+      readFileSync(join(process.cwd(), ".convex/local/default/config.json"), "utf8"),
+    ) as { adminKey?: unknown };
+    return typeof parsed.adminKey === "string" && parsed.adminKey.length > 0
+      ? parsed.adminKey
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Retire the synthetic `bulk-*@check.example` memberships this suite provisions.
+ * Each run adds ~205 real demo-organization members to exercise >200-member
+ * capture; suspending them afterwards (reversible, audited, nothing deleted)
+ * keeps the shared demo organization from inflating every later scan.
+ */
+async function retireBulkMemberships(): Promise<void> {
+  const key = devAdminKey();
+  if (!key || !(await serverUp())) return;
+  const admin = new ConvexHttpClient(CONVEX_URL);
+  (admin as unknown as { setAdminAuth: (v: string) => void }).setAdminAuth(key);
+  let cursor: string | undefined;
+  for (let i = 0; i < 100; i += 1) {
+    const result = (await admin.mutation(
+      internal.devTenantFixtures.retireBulkTestMemberships,
+      { maxRecords: 400, ...(cursor ? { cursor } : {}) },
+    )) as { suspended: number; isDone: boolean; continueCursor: string | null };
+    if (result.isDone) return;
+    if (!result.continueCursor) return;
+    cursor = result.continueCursor;
+  }
+}
+
+beforeAll(async () => {
+  await retireBulkMemberships();
+}, 180000);
+
+afterAll(async () => {
+  await retireBulkMemberships();
+}, 180000);
 
 async function signInAnonymous(): Promise<ConvexHttpClient> {
   const guest = new ConvexHttpClient(CONVEX_URL);
@@ -527,7 +571,10 @@ describe("Batch A3 — access review runtime", () => {
       let snap = (await admin.mutation(api.accessReview.captureMembers, {
         cycleId: created.cycleId as never,
       })) as CaptureResult;
-      for (let i = 0; i < 40 && !snap.scanComplete; i += 1) {
+      // The demo organization keeps suspended synthetic members from earlier
+      // runs, so the profile scan spans many bounded pages; the bound only
+      // guards against an infinite loop.
+      for (let i = 0; i < 120 && !snap.scanComplete; i += 1) {
         snap = (await admin.mutation(api.accessReview.captureMembers, {
           cycleId: created.cycleId as never,
         })) as CaptureResult;
@@ -711,7 +758,12 @@ describe("Batch A3 — access review runtime", () => {
 
       let pages = 1;
       let latest = cycle as unknown as CaptureResult;
-      while (!latest.scanComplete && pages < 40) {
+      // The shared demo organization retains the SUSPENDED synthetic members
+      // earlier runs provisioned (fixture hygiene suspends them; nothing is
+      // deleted), so the full profile scan legitimately spans many bounded
+      // pages. The bound only stops an infinite loop; the completeness
+      // assertions below still require every eligible member to be captured.
+      while (!latest.scanComplete && pages < 120) {
         latest = (await admin.mutation(api.accessReview.captureMembers, {
           cycleId: cycle.cycleId as never,
         })) as CaptureResult;

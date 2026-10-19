@@ -306,6 +306,82 @@ async function fixtureOrganization(ctx: MutationCtx, code: string) {
   return org;
 }
 
+/** The synthetic access-review identities the bulk capture suite provisions. */
+const BULK_TEST_EMAIL = /^bulk-[a-z0-9-]+@check\.example$/i;
+
+/**
+ * DEVELOPMENT-ONLY test-fixture hygiene for the SHARED demo organization.
+ * ======================================================================
+ * The access-review suite provisions ~205 synthetic members (`bulk-*@
+ * check.example`) per run to exercise >200-membership capture. Without
+ * retirement those identities accumulate in the demo organization and inflate
+ * every later snapshot scan.
+ *
+ * Safety properties:
+ *  - internalMutation behind the development gate (never reachable from a
+ *    browser, HTTP route or authenticated client);
+ *  - only the demo-flagged `IITAMS-DEMO` organization is touched, and only
+ *    profiles whose user email matches the synthetic bulk pattern;
+ *  - SUSPENDS the membership (reversible, audited, nothing deleted): the
+ *    profile, its user and the audit trail are all preserved;
+ *  - never touches real members, roles, controls, evidence or audit rows.
+ */
+export const retireBulkTestMemberships = internalMutation({
+  args: {
+    maxRecords: v.optional(v.number()),
+    cursor: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    if (!guestAuthEnabled()) {
+      throw new Error("Fixture cleanup is only available on development deployments");
+    }
+    const org = await ctx.db
+      .query("organizations")
+      .withIndex("code", (q) => q.eq("code", "IITAMS-DEMO"))
+      .unique();
+    if (!org) return { suspended: 0, isDone: true, continueCursor: null };
+    if (org.isDemo !== true) {
+      throw new Error("Refused: the demo organization is not demo-flagged");
+    }
+    const requested = args.maxRecords ?? 200;
+    const maxRecords = Math.min(Math.max(Math.floor(requested), 1), 400);
+
+    // Cursor-paginated so one call stays inside the transaction read limit; the
+    // caller resumes with `continueCursor` until `isDone`.
+    const page = await ctx.db
+      .query("userProfiles")
+      .withIndex("by_organization", (q) => q.eq("organizationId", org._id))
+      .paginate({ numItems: 400, cursor: args.cursor ?? null });
+
+    let suspended = 0;
+    for (const profile of page.page) {
+      if (suspended >= maxRecords) break;
+      if (effectiveMembershipStatus(profile.membershipStatus) !== "active") continue;
+      const user = await ctx.db.get(profile.userId);
+      if (!BULK_TEST_EMAIL.test(user?.email ?? "")) continue;
+      await ctx.db.patch(profile._id, { membershipStatus: "suspended" });
+      suspended += 1;
+    }
+
+    if (suspended > 0) {
+      await ctx.db.insert("auditLogs", {
+        organizationId: org._id,
+        action: "fixture.bulk_test_memberships_suspended",
+        entityType: "userProfiles",
+        actorLabel: "Development fixture cleanup",
+        summary: `${suspended} synthetic access-review membership(s) suspended so repeated test runs do not inflate the demo organization`,
+        createdAt: Date.now(),
+      });
+    }
+
+    return {
+      suspended,
+      isDone: page.isDone,
+      continueCursor: page.isDone ? null : page.continueCursor,
+    };
+  },
+});
+
 /**
  * Delete one treatment plan and its actions that a test created inside a
  * fixture organization. Scoped by id, refuses non-fixture organizations, and

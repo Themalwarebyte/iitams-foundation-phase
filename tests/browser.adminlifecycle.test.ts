@@ -85,7 +85,7 @@ afterAll(async () => {
       body: JSON.stringify({ fixtureUserIds: [...fixtureUserIds] }),
     }).catch(() => undefined);
   }
-});
+}, 60000);
 
 function requireEnv(): void {
   if (!serverUp) {

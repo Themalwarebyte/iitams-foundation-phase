@@ -774,10 +774,14 @@ export const listAdministratorLifecycle = query({
       )
       .collect();
 
+    // Role-scoped read: the directory only ever shows administrators, so the
+    // query must not walk every profile in the organization (an unbounded
+    // collect here times out once the demo organization holds thousands of
+    // members, blanking the page with a server error).
     const admins = await ctx.db
       .query("userProfiles")
-      .withIndex("by_organization", (q) =>
-        q.eq("organizationId", access.organizationId!),
+      .withIndex("by_organization_role", (q) =>
+        q.eq("organizationId", access.organizationId!).eq("role", ADMIN_ROLE),
       )
       .collect();
     // The directory presents only EFFECTIVE administrators: rows whose
@@ -786,7 +790,6 @@ export const listAdministratorLifecycle = query({
     // never point an operator at a credential that is no longer valid.
     const adminRows = admins.filter(
       (p) =>
-        p.role === ADMIN_ROLE &&
         !(p.demoRoleExpiresAt !== undefined && p.demoRoleExpiresAt <= now),
     );
 
