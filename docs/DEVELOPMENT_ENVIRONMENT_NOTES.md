@@ -79,7 +79,42 @@ Rotation invalidates existing sessions on that deployment — expected, and why
 it is done on non-production deployments without ceremony. If a signing key is
 ever exposed, rotate it; do not "monitor" it.
 
-## 3. Dev credential hygiene check (2026-10)
+## 3. Write/query stalls on a weak development host (2026-10)
+
+**Observed:** on this 2 vCPU / 2 GB development host (no swap) the local Convex
+backend holds ~0.9 GB RSS against a ~465 MB dev database (~256k document
+versions, ~1.04M index entries). Two headless-Chromium pages running at once
+drove `MemAvailable` from ~580 MB down to ~70 MB. In those windows otherwise
+trivial functions intermittently exceeded Convex's 1 s per-function budget:
+
+- `auth:store` (`createVerificationCode`) — 0.9 s warning, then
+  `Function execution timed out (maximum duration: 1s)`;
+- `devOtp:capture` and `verifyCodeAndSignIn` — 0.86–0.96 s warnings;
+- `admin:listUsers` and `adminLifecycle:listAdministratorLifecycle` timeouts.
+
+**Not query design and not database size alone:** with the same backend idle,
+`/api/query users:currentUser` answered in 1–2 ms and the full `auth:signIn`
+action (verification-code write + dev OTP capture) completed in 45–60 ms across
+eight consecutive calls. The stalls are host resource pressure.
+
+**App mitigation:** `src/pages/Auth.tsx` does NOT retry an email-OTP request
+automatically. A timeout is ambiguous — the verification code may already have
+been stored and delivered — and Convex Auth keeps only ONE active code per
+account, so a second request silently invalidates the code in the first email.
+Instead, a transient failure moves the user to the code step with a generic
+explanation, and a resend is an explicit, cooldown-gated user action (30 s).
+The policy and its messages live in `src/lib/authOtp.ts` and are covered by
+`tests/authOtp.test.ts`. Nothing in authentication is relaxed: every request
+still creates one ordinary verification code and the code is verified by the
+real backend.
+
+**Operational guidance:** run browser suites one at a time, and restart the
+managed preview (`freebuff-preview restart` — never a manual kill) when the
+backend RSS regrows past ~0.9 GB. On this host a full `tsc -b` and the
+production bundle can exceed a 180 s shell cap; run them through the
+preview/build pipeline instead of an interactive terminal command.
+
+## 4. Dev credential hygiene check (2026-10)
 
 A development test run once emitted auth material into diagnostic output. The
 check and its outcome:

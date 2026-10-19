@@ -22,6 +22,12 @@ import { ArrowRight, Loader2, Mail, ShieldCheck, UserX } from "lucide-react";
 import { Suspense, useEffect, useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router";
 import { VisualBackground } from "@/components/VisualBackground";
+import {
+  OTP_NEWEST_CODE_GUIDANCE,
+  canResendOtp,
+  otpResendRemainingMs,
+  requestOtpOnce,
+} from "@/lib/authOtp";
 
 interface AuthProps {
   redirectAfterAuth?: string;
@@ -53,6 +59,10 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const [otp, setOtp] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Timestamp of the last code REQUEST (successful or ambiguous). Drives the
+  // explicit-resend cooldown; a resend is only ever a user action.
+  const [sentAt, setSentAt] = useState<number | null>(null);
+  const [clock, setClock] = useState(() => Date.now());
 
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
@@ -60,24 +70,70 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     }
   }, [authLoading, isAuthenticated, navigate, redirect]);
 
+  useEffect(() => {
+    if (sentAt === null) return;
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [sentAt]);
+
+  const resendRemainingMs = otpResendRemainingMs(sentAt, clock);
+  const resendSeconds = Math.ceil(resendRemainingMs / 1000);
+  const resendEnabled = canResendOtp(sentAt, clock, isLoading);
+
+  /**
+   * Request one verification code. Completion of the request is ambiguous when
+   * it fails with a timeout or generic server error: the code may already
+   * have been stored and delivered. Convex Auth keeps only ONE active code per
+   * account, so an automatic retry would silently invalidate the first email.
+   * The request is therefore performed exactly once (OTP_MAX_AUTOMATIC_ATTEMPTS)
+   * and any further attempt is an explicit user action with a cooldown.
+   */
+  const requestCode = async (email: string) => {
+    const formData = new FormData();
+    formData.append("email", email);
+    const result = await requestOtpOnce(async () => {
+      await signIn("email-otp", formData);
+    });
+    return { email, result };
+  };
+
   const handleEmailSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsLoading(true);
     setError(null);
-    try {
-      const formData = new FormData(event.currentTarget);
-      await signIn("email-otp", formData);
-      setStep({ email: formData.get("email") as string });
-      setIsLoading(false);
-    } catch (error) {
-      console.error("Email sign-in error:", error);
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Failed to send verification code. Please try again.",
-      );
-      setIsLoading(false);
+    setOtp("");
+    const email = String(new FormData(event.currentTarget).get("email") ?? "");
+    const { result } = await requestCode(email);
+    setIsLoading(false);
+    if (result.ok) {
+      setStep({ email });
+      setSentAt(Date.now());
+      setClock(Date.now());
+      return;
     }
+    if (result.kind === "transient") {
+      // Ambiguous: move to the code step, explain the two possible outcomes
+      // and let the cooldown-gated resend handle a missing email.
+      setStep({ email });
+      setSentAt(Date.now());
+      setClock(Date.now());
+    }
+    setError(result.message);
+  };
+
+  const handleResend = async () => {
+    if (step === "signIn" || !resendEnabled) return;
+    setIsLoading(true);
+    setError(null);
+    setOtp("");
+    const { result } = await requestCode(step.email);
+    setIsLoading(false);
+    if (result.ok) {
+      setSentAt(Date.now());
+      setClock(Date.now());
+      return;
+    }
+    setError(result.message);
   };
 
   const handleOtpSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -90,11 +146,20 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
 
       navigate(redirect);
     } catch (error) {
+      // Generic on purpose: never expose server detail (and never reveal
+      // whether the address has an account) in a verification failure.
       console.error("OTP verification error:", error);
-      setError("The verification code you entered is incorrect.");
+      setError("The verification code you entered is incorrect or has expired.");
       setIsLoading(false);
       setOtp("");
     }
+  };
+
+  const useDifferentEmail = () => {
+    setStep("signIn");
+    setSentAt(null);
+    setError(null);
+    setOtp("");
   };
 
   const handleGuestLogin = async () => {
@@ -308,16 +373,28 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                           {error}
                         </p>
                       )}
-                      <p className="mt-4 text-center text-sm text-muted-foreground">
-                        Didn&apos;t receive a code?{" "}
+                      <p className="mt-4 text-xs leading-5 text-muted-foreground">
+                        {OTP_NEWEST_CODE_GUIDANCE}
+                      </p>
+                      <div className="mt-4 flex flex-col items-center gap-1 text-sm">
+                        <span className="text-muted-foreground">
+                          Didn&apos;t receive a code?
+                        </span>
                         <Button
+                          type="button"
                           variant="link"
                           className="h-auto p-0"
-                          onClick={() => setStep("signIn")}
+                          onClick={handleResend}
+                          disabled={!resendEnabled}
+                          aria-live="polite"
                         >
-                          Try again
+                          {isLoading
+                            ? "Sending…"
+                            : resendRemainingMs > 0
+                              ? `Resend code in ${resendSeconds}s`
+                              : "Resend code"}
                         </Button>
-                      </p>
+                      </div>
                     </CardContent>
                     <CardFooter className="flex-col gap-2">
                       <Button
@@ -340,7 +417,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                       <Button
                         type="button"
                         variant="ghost"
-                        onClick={() => setStep("signIn")}
+                        onClick={useDifferentEmail}
                         disabled={isLoading}
                         className="w-full"
                       >
