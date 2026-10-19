@@ -111,8 +111,8 @@ real backend.
 **Operational guidance:** run browser suites one at a time, and restart the
 managed preview (`freebuff-preview restart` — never a manual kill) when the
 backend RSS regrows past ~0.9 GB. On this host a full `tsc -b` and the
-production bundle can exceed a 180 s shell cap; run them through the
-preview/build pipeline instead of an interactive terminal command.
+production bundle can exceed a 180 s shell cap while the host is memory-starved
+— see §5 for the measured cause and the verified procedure (enable swap first).
 
 ## 4. Dev credential hygiene check (2026-10)
 
@@ -141,3 +141,57 @@ check and its outcome:
 rotation is required. Rotate via §2 only if key material is ever actually
 observed in output — and never print `npx convex env list` on a deployment
 to "check".
+
+## 5. Why the production build "did not fit" on this host — and the verified fix (2026-10-19)
+
+Measured on the sandbox while the managed preview was running:
+
+| Observation | Value |
+| --- | --- |
+| Logical CPUs visible to the workspace | **1** (`nproc`) |
+| Total memory / swap | 1983 MB / **0 MB** |
+| Typical memory in use | ~1.4 GB (convex-local-backend ≈ 1.0–1.1 GB RSS, Vite ≈ 130 MB, `convex dev` ≈ 110 MB) |
+| Free memory while the build runs | 60–90 MB — the build process is killed |
+| `find`/`cat` over `node_modules`, `src` | fast (< 0.2 s); raw disk ≈ 360 MB/s |
+
+**Root cause: addressable memory, not CPU.** Earlier attempts looked like CPU
+starvation — `tsc -b` and `vite build` reported only ~7–12 s of user CPU in a
+150 s window — which is what allocation under memory pressure looks like from
+the outside. Instrumenting the build showed the real limit: it reaches ~550 MB
+RSS in about 20 s and then dies (`FATAL ERROR: Reached heap limit Allocation
+failed` when the V8 heap is capped; a silent host kill when it is not). A plain
+`node`/`bun` busy loop on the same host reaches 94 % of a CPU, so CPU was never
+the constraint. The old conclusion ("blocked by CPU/shell limits") was wrong
+and is superseded here.
+
+**Verified procedure — add swap before the heavy checks.** The build needs
+~700 MB of addressable memory; this host can only spare ~550 MB of RAM, so give
+it a backing store (host-local, never committed):
+
+```bash
+fallocate -l 3G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+```
+
+With that swap in place, on the *same* 1-vCPU sandbox and with the managed
+preview still running:
+
+| Check | Result |
+| --- | --- |
+| `bun tsc -b --noEmit` | exit 0 — 24 s wall |
+| `bun run lint` | exit 0 — 0 errors, 21 pre-existing warnings — 33 s wall |
+| `bun run build` (`tsc -b && vite build`) | exit 0 — 41 s wall ("✓ built in 13.2 s"; peak RSS 550 MB, 118 MB of swap) |
+
+`dist/` stays git-ignored and must never be committed. If swap cannot be enabled
+(a locked-down container with no `CAP_SYS_ADMIN`), the checks are genuinely
+**blocked** — record them as blocked, never as passed — and run them on a runner
+with ≥ 2 vCPU / 4 GB or through the Freebuff production build pipeline
+(`freebuff-deploy check` → Deploy), which runs the same `bun run build` in a
+clean builder.
+
+**Long runs are a separate limit.** The whole configured unit set
+(`bun run test:unit` — 23 files) needs roughly 6–8 minutes here, so it exceeds a
+single shell command. Run the exact configured file list in documented chunks,
+one `bun test <file>` invocation per file with a `timeout`, and record each
+file's exit code and pass/fail/skip counts separately. Browser suites stay
+sequential, one file per invocation, and are the first thing to stop if the
+backend RSS passes ~0.9 GB.

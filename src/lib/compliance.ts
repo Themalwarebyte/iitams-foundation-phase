@@ -330,6 +330,216 @@ export const ASSESSMENT_REVIEW_NOTES_MAX = 2000;
 export const ASSESSMENT_EVIDENCE_UNLINK_REASON_MAX = 300;
 
 // ---------------------------------------------------------------------------
+// Compliance findings and remediation (Phase 3C Batch 4)
+// ---------------------------------------------------------------------------
+// A finding records a compliance GAP an assessor or manager has identified —
+// it is never created automatically because a control was assessed partially
+// compliant or non-compliant. Remediation is tracked as separate actions, with
+// an explicit line between RECOMMENDED work, ASSIGNED work, work an
+// implementer has COMPLETED and work an independent verifier has VERIFIED.
+// Completion never becomes verification on its own.
+
+/** Lifecycle of a finding, from identification to closed (or reopened). */
+export const COMPLIANCE_FINDING_STATUSES = [
+  "open",
+  "in_remediation",
+  "awaiting_verification",
+  "closed",
+] as const;
+export type ComplianceFindingStatus =
+  (typeof COMPLIANCE_FINDING_STATUSES)[number];
+
+export const COMPLIANCE_FINDING_STATUS_LABELS: Record<
+  ComplianceFindingStatus,
+  string
+> = {
+  open: "Open",
+  in_remediation: "In remediation",
+  awaiting_verification: "Awaiting verification",
+  closed: "Closed",
+};
+
+export const complianceFindingStatusValidator = v.union(
+  ...COMPLIANCE_FINDING_STATUSES.map((s) => v.literal(s)),
+);
+
+/** Severity scale (highest first) — matches the audit severity vocabulary. */
+export const COMPLIANCE_FINDING_SEVERITIES = [
+  "critical",
+  "high",
+  "medium",
+  "low",
+  "informational",
+] as const;
+export type ComplianceFindingSeverity =
+  (typeof COMPLIANCE_FINDING_SEVERITIES)[number];
+
+export const COMPLIANCE_FINDING_SEVERITY_LABELS: Record<
+  ComplianceFindingSeverity,
+  string
+> = {
+  critical: "Critical",
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+  informational: "Informational",
+};
+
+export const complianceFindingSeverityValidator = v.union(
+  ...COMPLIANCE_FINDING_SEVERITIES.map((s) => v.literal(s)),
+);
+
+/** Ordering rank for severity-first lists (lower is more severe). */
+export const COMPLIANCE_FINDING_SEVERITY_RANK: Record<
+  ComplianceFindingSeverity,
+  number
+> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+  informational: 4,
+};
+
+/**
+ * Remediation action lifecycle.
+ * assigned → in_progress → completed → verified, with cancellation available
+ * while the action is still being worked. `completed` states what the
+ * implementer finished; only an independent `verified` transition records that
+ * the correction was checked.
+ */
+export const COMPLIANCE_REMEDIATION_STATUSES = [
+  "assigned",
+  "in_progress",
+  "completed",
+  "verified",
+  "cancelled",
+] as const;
+export type ComplianceRemediationStatus =
+  (typeof COMPLIANCE_REMEDIATION_STATUSES)[number];
+
+export const COMPLIANCE_REMEDIATION_STATUS_LABELS: Record<
+  ComplianceRemediationStatus,
+  string
+> = {
+  assigned: "Assigned",
+  in_progress: "In progress",
+  completed: "Implementation complete",
+  verified: "Independently verified",
+  cancelled: "Cancelled",
+};
+
+export const complianceRemediationStatusValidator = v.union(
+  ...COMPLIANCE_REMEDIATION_STATUSES.map((s) => v.literal(s)),
+);
+
+const FINDING_TRANSITIONS: Record<
+  ComplianceFindingStatus,
+  ComplianceFindingStatus[]
+> = {
+  open: ["in_remediation", "awaiting_verification", "closed"],
+  in_remediation: ["awaiting_verification"],
+  awaiting_verification: ["closed", "in_remediation"],
+  // Closing is terminal; a closed finding is reopened through an explicit
+  // reopen action that preserves the closure in the history.
+  closed: ["in_remediation"],
+};
+
+export function canTransitionFinding(
+  from: ComplianceFindingStatus,
+  to: ComplianceFindingStatus,
+): boolean {
+  return FINDING_TRANSITIONS[from]?.includes(to) ?? false;
+}
+
+/** A finding that still needs work. */
+export function isOpenFinding(status: ComplianceFindingStatus): boolean {
+  return status !== "closed";
+}
+
+const REMEDIATION_TRANSITIONS: Record<
+  ComplianceRemediationStatus,
+  ComplianceRemediationStatus[]
+> = {
+  assigned: ["in_progress", "completed", "cancelled"],
+  in_progress: ["completed", "cancelled"],
+  // A failed verification sends the action back to work — the attempt stays in
+  // the history and nothing is deleted.
+  completed: ["verified", "in_progress"],
+  verified: [],
+  cancelled: [],
+};
+
+export function canTransitionRemediation(
+  from: ComplianceRemediationStatus,
+  to: ComplianceRemediationStatus,
+): boolean {
+  return REMEDIATION_TRANSITIONS[from]?.includes(to) ?? false;
+}
+
+/** Work an implementer has finished (whether or not it has been verified). */
+export function isRemediationComplete(
+  status: ComplianceRemediationStatus,
+): boolean {
+  return status === "completed" || status === "verified";
+}
+
+/** Work that no longer needs anything further (verified, or cancelled). */
+export function isRemediationResolved(
+  status: ComplianceRemediationStatus,
+): boolean {
+  return status === "verified" || status === "cancelled";
+}
+
+/**
+ * Overdue: a due date has passed and the action is still unresolved. Verified,
+ * cancelled and timestamped-complete work is never reported as overdue.
+ */
+export function isRemediationOverdue(
+  dueDate: number | undefined,
+  status: ComplianceRemediationStatus,
+  now: number = Date.now(),
+): boolean {
+  if (dueDate === undefined) return false;
+  if (isRemediationComplete(status) || status === "cancelled") return false;
+  return dueDate < now;
+}
+
+/**
+ * Separation of duties for verification: nobody signs off their own work. The
+ * verifier must differ from both the action owner and the implementer who
+ * recorded completion.
+ */
+export function canIndependentlyVerify(
+  verifierUserId: string,
+  parties: { ownerUserId?: string; completedByUserId?: string },
+): boolean {
+  return (
+    verifierUserId !== parties.ownerUserId &&
+    verifierUserId !== parties.completedByUserId
+  );
+}
+
+// Finding limits.
+export const FINDING_TITLE_MAX = 200;
+export const FINDING_REFERENCE_MAX = 40;
+export const FINDING_DESCRIPTION_MIN = 20;
+export const FINDING_DESCRIPTION_MAX = 4000;
+export const FINDING_TEXT_MAX = 4000;
+export const FINDING_GAP_MAX = 2000;
+export const FINDING_REQUIREMENT_MAX = 500;
+export const FINDING_OWNER_MAX = 160;
+/** Minimum documented reason for a closure without verification evidence. */
+export const FINDING_EXCEPTION_MIN = 20;
+export const FINDING_CLOSURE_NOTES_MAX = 2000;
+export const FINDING_REOPEN_REASON_MAX = 1000;
+export const REMEDIATION_DESCRIPTION_MIN = 10;
+export const REMEDIATION_DESCRIPTION_MAX = 2000;
+export const REMEDIATION_REFERENCE_MAX = 40;
+export const REMEDIATION_NOTES_MAX = 2000;
+export const REMEDIATION_REASON_MAX = 1000;
+
+// ---------------------------------------------------------------------------
 // Evidence integrity + classification
 // ---------------------------------------------------------------------------
 

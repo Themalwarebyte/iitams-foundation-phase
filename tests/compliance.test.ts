@@ -374,6 +374,10 @@ describe("Compliance — structural guards", () => {
     );
     expect(queriedTables).toEqual(
       new Set([
+        // Batch 4 (findings & remediation) additions.
+        "complianceFindingEvents",
+        "complianceRemediationActions",
+        "complianceFindings",
         "complianceAssessmentEvidence",
         "complianceAssessmentItems",
         "complianceAssessments",
@@ -386,7 +390,7 @@ describe("Compliance — structural guards", () => {
     );
     for (const deletion of resetBody.matchAll(/ctx\.db\.delete\(([\w.]+)\)/g)) {
       expect(deletion[1]).toMatch(
-        /^(mapping|record|test|control|framework|link|item|assessment)\._id$/,
+        /^(mapping|record|test|control|framework|link|item|assessment|event|action|finding)\._id$/,
       );
     }
     expect(resetBody).not.toContain("userProfiles");

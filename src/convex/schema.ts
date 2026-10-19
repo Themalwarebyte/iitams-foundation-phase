@@ -17,6 +17,9 @@ import {
 import {
   complianceAssessmentOutcomeValidator,
   complianceAssessmentStatusValidator,
+  complianceFindingSeverityValidator,
+  complianceFindingStatusValidator,
+  complianceRemediationStatusValidator,
   complianceEvidenceClassificationValidator,
   complianceFrameworkStatusValidator,
   controlApplicabilityValidator,
@@ -1130,6 +1133,121 @@ const schema = defineSchema(
       .index("by_organization_assessment", ["organizationId", "assessmentId"])
       .index("by_organization_item", ["organizationId", "itemId"])
       .index("by_organization_evidence", ["organizationId", "evidenceId"]),
+
+    // ------------------------------------------------------------------
+    // COMPLIANCE FINDINGS AND REMEDIATION (Phase 3C — Batch 4)
+    // ------------------------------------------------------------------
+    // A finding is organization-scoped and linked to the framework, control,
+    // assessment cycle or item it came from. It is NEVER created automatically
+    // from an assessment outcome: a partially compliant control does not become
+    // a verified finding without a person recording one.
+    complianceFindings: defineTable({
+      organizationId: v.id("organizations"),
+      // Human-readable per-organization identifier (CF-001…).
+      reference: v.string(),
+      title: v.string(),
+      description: v.string(),
+      // The compliance gap: what is missing or not operating.
+      gap: v.optional(v.string()),
+      requirement: v.optional(v.string()),
+      rootCause: v.optional(v.string()),
+      recommendation: v.optional(v.string()),
+      severity: complianceFindingSeverityValidator,
+      status: complianceFindingStatusValidator,
+      frameworkId: v.id("complianceFrameworks"),
+      controlId: v.optional(v.id("controls")),
+      assessmentId: v.optional(v.id("complianceAssessments")),
+      assessmentItemId: v.optional(v.id("complianceAssessmentItems")),
+      controlTestIds: v.optional(v.array(v.id("complianceControlTests"))),
+      evidenceIds: v.optional(v.array(v.id("complianceEvidence"))),
+      ownerUserId: v.optional(v.id("users")),
+      ownerLabel: v.string(),
+      identifiedAt: v.number(),
+      targetDate: v.optional(v.number()),
+      recordedByUserId: v.id("users"),
+      recordedByLabel: v.string(),
+      // Submission for verification: recorded separately from closure so the
+      // hand-off itself is an auditable, timestamped event.
+      submittedAt: v.optional(v.number()),
+      submittedByUserId: v.optional(v.id("users")),
+      submittedByLabel: v.optional(v.string()),
+      closureMethod: v.optional(
+        v.union(v.literal("verified"), v.literal("exception")),
+      ),
+      closureNotes: v.optional(v.string()),
+      closedAt: v.optional(v.number()),
+      closedByUserId: v.optional(v.id("users")),
+      closedByLabel: v.optional(v.string()),
+      reopenCount: v.number(),
+      isDemo: v.optional(v.boolean()),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_status", ["organizationId", "status"])
+      .index("by_organization_severity", ["organizationId", "severity"])
+      .index("by_organization_framework", ["organizationId", "frameworkId"])
+      .index("by_organization_control", ["organizationId", "controlId"])
+      .index("by_organization_assessment", ["organizationId", "assessmentId"])
+      .index("by_organization_reference", ["organizationId", "reference"])
+      .index("by_organization_target", ["organizationId", "targetDate"]),
+
+    // Remediation actions. `completed` states what the implementer finished;
+    // only an independent `verified` transition records that the correction was
+    // checked, and the two are never conflated.
+    complianceRemediationActions: defineTable({
+      organizationId: v.id("organizations"),
+      findingId: v.id("complianceFindings"),
+      // Human-readable per-organization identifier (RA-001…).
+      reference: v.string(),
+      description: v.string(),
+      ownerUserId: v.optional(v.id("users")),
+      ownerLabel: v.string(),
+      dueDate: v.optional(v.number()),
+      // Mandatory actions must be completed before the finding can be
+      // submitted for verification or closed.
+      mandatory: v.boolean(),
+      status: complianceRemediationStatusValidator,
+      progressNotes: v.optional(v.string()),
+      evidenceIds: v.optional(v.array(v.id("complianceEvidence"))),
+      completionNotes: v.optional(v.string()),
+      completedAt: v.optional(v.number()),
+      completedByUserId: v.optional(v.id("users")),
+      completedByLabel: v.optional(v.string()),
+      verificationNotes: v.optional(v.string()),
+      verifiedAt: v.optional(v.number()),
+      verifiedByUserId: v.optional(v.id("users")),
+      verifiedByLabel: v.optional(v.string()),
+      cancelledAt: v.optional(v.number()),
+      cancelledByUserId: v.optional(v.id("users")),
+      cancelledByLabel: v.optional(v.string()),
+      cancelReason: v.optional(v.string()),
+      isDemo: v.optional(v.boolean()),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_finding", ["organizationId", "findingId"])
+      .index("by_organization_status", ["organizationId", "status"])
+      .index("by_organization_reference", ["organizationId", "reference"])
+      .index("by_organization_due", ["organizationId", "dueDate"]),
+
+    // Append-only history for findings and their actions: reopening a finding,
+    // a failed verification and every status change stay readable forever.
+    complianceFindingEvents: defineTable({
+      organizationId: v.id("organizations"),
+      findingId: v.id("complianceFindings"),
+      actionId: v.optional(v.id("complianceRemediationActions")),
+      type: v.string(),
+      fromStatus: v.optional(v.string()),
+      toStatus: v.optional(v.string()),
+      actorUserId: v.id("users"),
+      actorLabel: v.string(),
+      summary: v.string(),
+      reason: v.optional(v.string()),
+      createdAt: v.number(),
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_finding", ["organizationId", "findingId"])
+      .index("by_organization_action", ["organizationId", "actionId"]),
 
     // ------------------------------------------------------------------
     // CYBERSECURITY ASSURANCE & VULNERABILITY MANAGEMENT

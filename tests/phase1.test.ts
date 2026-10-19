@@ -62,19 +62,20 @@ describe("navigation model", () => {
 // ---------------------------------------------------------------------------
 
 describe("permission model", () => {
-  test("navigation totals 51 entries across 8 groups (Phase-3B adds risk monitoring)", () => {
+  test("navigation totals 52 entries across 8 groups (Batch 4 adds compliance findings)", () => {
     const counts = NAV_GROUPS.map((g) => ({ label: g.label, count: g.items.length }));
     expect(counts).toEqual([
       { label: "Overview", count: 3 },
       { label: "Audit Management", count: 10 },
       { label: "ICT Risk", count: 6 },
-      { label: "Compliance", count: 6 },
+      // Batch 4 (Compliance Findings & Remediation) adds the seventh entry.
+      { label: "Compliance", count: 7 },
       { label: "Cybersecurity Assurance", count: 6 },
       { label: "Business Continuity", count: 6 },
       { label: "Reports & Analytics", count: 6 },
       { label: "Administration", count: 8 },
     ]);
-    expect(NAV_GROUPS.reduce((n, g) => n + g.items.length, 0)).toBe(51);
+    expect(NAV_GROUPS.reduce((n, g) => n + g.items.length, 0)).toBe(52);
   });
   const fullAdmin: PermissionSet = {
     dashboard: true,

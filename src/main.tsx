@@ -121,6 +121,9 @@ const ComplianceControlsPage = lazy(
 const ComplianceAssessmentsPage = lazy(
   () => import("./components/iitams/compliance/ComplianceAssessmentsPage"),
 );
+const ComplianceFindingsPage = lazy(
+  () => import("./components/iitams/compliance/ComplianceFindingsPage"),
+);
 const AdminAccessReviewsPage = lazy(() =>
   import("./components/iitams/admin/AdminAccessReviewsPage").then((m) => ({
     default: m.AdminAccessReviewsPage,
@@ -356,6 +359,18 @@ createRoot(document.getElementById("root")!).render(
                     description="Assessment cycles are available to authorized users of your organization."
                   >
                     <ComplianceAssessmentsPage />
+                  </RequireAuth>
+                }
+              />
+              {/* Phase 3C Batch 4 — compliance findings and remediation */}
+              <Route
+                path="/compliance/findings"
+                element={
+                  <RequireAuth
+                    title="Sign in to open compliance findings"
+                    description="Compliance findings and remediation tracking are available to authorized users of your organization."
+                  >
+                    <ComplianceFindingsPage />
                   </RequireAuth>
                 }
               />

@@ -74,7 +74,7 @@
 
 Not in this batch (by design): control testing, evidence mapping, compliance assessments and automated scoring.
 
-## Phase 3C — Batch 2: control testing and evidence mapping *(uncommitted, awaiting review)*
+## Phase 3C — Batch 2: control testing and evidence mapping *(committed: b2ae1db)*
 
 | Workstream | Status | Evidence |
 | --- | --- | --- |
@@ -91,7 +91,7 @@ Not in this batch (by design): control testing, evidence mapping, compliance ass
 
 Not in this batch (by design): compliance scoring/percentages, control assessments against a maturity model, and automated effectiveness derivation.
 
-## Phase 3C — Batch 3: compliance assessments and assessment history *(uncommitted, awaiting review)*
+## Phase 3C — Batch 3: compliance assessments and assessment history *(committed: 397cb02)*
 
 | Workstream | Status | Evidence |
 | --- | --- | --- |
@@ -108,6 +108,45 @@ Not in this batch (by design): compliance scoring/percentages, control assessmen
 | Tests (structural + runtime + cross-tenant + review + immutability + Chromium journey) | ✅ | `tests/complianceAssessments.test.ts`, `tests/browser.compliance-assessments.test.ts` |
 
 Not in this batch (by design): weighted compliance percentages, maturity scoring, automated assessment of untested controls, and assessment-to-audit-engagement linkage.
+
+## Phase 3C — Batch 4: compliance findings, gaps and remediation *(committed with this change — `feat(compliance): add findings and remediation workflows`)*
+
+| Workstream | Status | Evidence |
+| --- | --- | --- |
+| Organization-scoped findings linked to framework, control, assessment cycle/item, control tests and evidence (own tables — the Phase-2 audit findings stay engagement-specific) | ✅ | `src/convex/complianceFindings.ts`, `/compliance/findings` |
+| Reference, title, description, gap, requirement, root cause, recommendation, severity, owner, identified/target dates, lifecycle status, recorder | ✅ | `complianceFindings`, `createFinding` |
+| No finding is created by an assessment outcome; a partially compliant control creates nothing automatically | ✅ | `tests/complianceFindings.test.ts` («no finding is fabricated…») |
+| Remediation actions with owner, due date, status, completion notes, evidence refs, completion and verification timestamps | ✅ | `complianceRemediationActions`, `assignRemediationAction`, `completeRemediationAction` |
+| Distinct states: recommendation → assigned action → implementation complete → independently verified → finding closed | ✅ | `canTransitionRemediation`, `isRemediationComplete`, `isRemediationResolved` |
+| Closure gates: no unresolved mandatory action; a verified closure needs independent verification or a documented exception | ✅ | `closeFinding`, `gates` on `getFinding` |
+| Separation of duties: owner/implementer can never verify their own remediation or close their own work | ✅ | `verifyRemediationAction`, `tests/complianceFindings.test.ts` |
+| Reopening and failed verification preserve the full event history (append-only `complianceFindingEvents`) | ✅ | `reopenFinding`, `failRemediationVerification` |
+| Authorization: canonical `compliance.view`/`compliance.manage`, active membership, server-derived organization, every id re-validated, audit entry per write | ✅ | `resolveAccess`, `requireManager`, `recordEvent` |
+| Frontend: register with severity/status/overdue filters, detail, action assignment, overdue indicators, verification and closure controls, read-only for non-managers | ✅ | `ComplianceFindingsPage.tsx` |
+| Reporting: counts of open/awaiting/closed findings, overdue actions and actions outstanding — no remediation or compliance percentage | ✅ | `findingsSummary` |
+| Tests (structural + runtime + tenant isolation + independent verification + exception path + reopen + evidence + Chromium journey) | ✅ | `tests/complianceFindings.test.ts` (15), `tests/browser.compliance-findings.test.ts` |
+
+Not in this batch (by design): remediation scoring/percentages, automatic finding creation from control tests, and linkage to audit engagements (the audit findings model is engagement-specific and was deliberately not reused as a table).
+
+**Verification (2026-10-19, 1-vCPU / 2 GB sandbox with a swap file added — see
+[`DEVELOPMENT_ENVIRONMENT_NOTES.md`](DEVELOPMENT_ENVIRONMENT_NOTES.md) §5):**
+
+| Check | Result |
+| --- | --- |
+| `bun tsc -b --noEmit` | ✅ exit 0 (24 s) |
+| `bun run lint` | ✅ exit 0 — 0 errors, 21 pre-existing warnings |
+| `bun run test:unit` (23 files, chunked) | ✅ 23/23 files exit 0 — **333 pass, 0 fail, 2 skip** |
+| `bun run test:e2e:compliance-findings` | ✅ 1/1 pass |
+| `bun run build` (`tsc -b && vite build`) | ✅ exit 0 — 70 asset files, Compliance pages present |
+| Bundle scan (`dist/`) | ✅ no tester token, no `RESEND` key/provider credential, no dev-auth helper, no Vial/`@vly-ai` code, no review ZIP |
+
+The two `compliance.test.ts`/`phase1.test.ts` expectations that had gone stale
+with this batch (the fixture-cleanup table set and the navigation totals, now 52
+entries) were corrected, and the appendix formatting of `devTenantFixtures.ts`
+was tidied. The 2 skips are the pre-existing conditional
+*bootstrap-fixture-not-fresh* cases in `security.adminlifecycle.test.ts`, which
+skip themselves when the shared dev deployment already holds that fixture —
+they are reported as skipped, not as passing.
 
 ## Phase 3 — Recommended next (not started)
 

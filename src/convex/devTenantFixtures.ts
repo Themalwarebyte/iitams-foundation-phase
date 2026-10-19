@@ -495,17 +495,20 @@ export const resetComplianceFixtures = internalMutation({
     }
     const org = await fixtureOrganization(ctx, "IITAMS-TEST-M");
     if (!org) {
-    return {
-      deletedControls: 0,
-      deletedFrameworks: 0,
-      deletedTests: 0,
-      deletedEvidence: 0,
-      deletedMappings: 0,
-      deletedAssessments: 0,
-      deletedAssessmentItems: 0,
-      deletedAssessmentEvidence: 0,
-      remaining: 0,
-    };
+      return {
+        deletedControls: 0,
+        deletedFrameworks: 0,
+        deletedTests: 0,
+        deletedEvidence: 0,
+        deletedMappings: 0,
+        deletedAssessments: 0,
+        deletedAssessmentItems: 0,
+        deletedAssessmentEvidence: 0,
+        deletedFindings: 0,
+        deletedRemediationActions: 0,
+        deletedFindingEvents: 0,
+        remaining: 0,
+      };
     }
     const requested = args.maxRecords ?? 25;
     const maxRecords = Math.min(Math.max(Math.floor(requested), 1), 50);
@@ -513,7 +516,36 @@ export const resetComplianceFixtures = internalMutation({
     // Phase 3C records are removed innermost first, so a control is never
     // deleted while assessments, tests, evidence or mappings still reference
     // it. Evidence blobs are removed from storage as well, so the cleanup
-    // leaves no orphaned files behind.
+    // leaves no orphaned files behind. Findings go first: their remediation
+    // actions reference the finding, which in turn references the framework,
+    // control and assessment cycle it arose from.
+    const findingEvents = await ctx.db
+      .query("complianceFindingEvents")
+      .withIndex("by_organization", (q) => q.eq("organizationId", org._id))
+      .take(200);
+    const findingEventBatch = findingEvents.slice(0, maxRecords * 4);
+    for (const event of findingEventBatch) {
+      await ctx.db.delete(event._id);
+    }
+
+    const remediationActions = await ctx.db
+      .query("complianceRemediationActions")
+      .withIndex("by_organization", (q) => q.eq("organizationId", org._id))
+      .take(200);
+    const remediationBatch = remediationActions.slice(0, maxRecords * 4);
+    for (const action of remediationBatch) {
+      await ctx.db.delete(action._id);
+    }
+
+    const findings = await ctx.db
+      .query("complianceFindings")
+      .withIndex("by_organization", (q) => q.eq("organizationId", org._id))
+      .take(200);
+    const findingBatch = findings.slice(0, maxRecords);
+    for (const finding of findingBatch) {
+      await ctx.db.delete(finding._id);
+    }
+
     const assessmentEvidence = await ctx.db
       .query("complianceAssessmentEvidence")
       .withIndex("by_organization", (q) => q.eq("organizationId", org._id))
@@ -609,6 +641,13 @@ export const resetComplianceFixtures = internalMutation({
         )
         .first();
       if (remainingAssessments) continue;
+      const remainingFindings = await ctx.db
+        .query("complianceFindings")
+        .withIndex("by_organization_framework", (q) =>
+          q.eq("organizationId", org._id).eq("frameworkId", framework._id),
+        )
+        .first();
+      if (remainingFindings) continue;
       await ctx.db.delete(framework._id);
       frameworkBatch.push(framework._id);
     }
@@ -622,6 +661,9 @@ export const resetComplianceFixtures = internalMutation({
       deletedAssessments: assessmentBatch.length,
       deletedAssessmentItems: assessmentItemBatch.length,
       deletedAssessmentEvidence: assessmentEvidenceBatch.length,
+      deletedFindings: findingBatch.length,
+      deletedRemediationActions: remediationBatch.length,
+      deletedFindingEvents: findingEventBatch.length,
       remaining: Math.max(
         controls.length -
           controlBatch.length +
@@ -638,7 +680,13 @@ export const resetComplianceFixtures = internalMutation({
           assessmentItems.length -
           assessmentItemBatch.length +
           assessmentEvidence.length -
-          assessmentEvidenceBatch.length,
+          assessmentEvidenceBatch.length +
+          findings.length -
+          findingBatch.length +
+          remediationActions.length -
+          remediationBatch.length +
+          findingEvents.length -
+          findingEventBatch.length,
         0,
       ),
     };
