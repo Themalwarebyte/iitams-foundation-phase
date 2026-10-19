@@ -218,6 +218,118 @@ export function isOpenControlTest(status: ControlTestStatus): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Compliance assessments (Phase 3C Batch 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * A cycle moves draft → in progress → completed, and (when independent review
+ * is required) completed → reviewed. A finalised cycle is never reopened: a
+ * correction is a NEW assessment that supersedes it.
+ */
+export const COMPLIANCE_ASSESSMENT_STATUSES = [
+  "draft",
+  "in_progress",
+  "completed",
+  "reviewed",
+] as const;
+export type ComplianceAssessmentStatus =
+  (typeof COMPLIANCE_ASSESSMENT_STATUSES)[number];
+
+export const COMPLIANCE_ASSESSMENT_STATUS_LABELS: Record<
+  ComplianceAssessmentStatus,
+  string
+> = {
+  draft: "Draft",
+  in_progress: "In progress",
+  completed: "Completed",
+  reviewed: "Reviewed",
+};
+
+export const complianceAssessmentStatusValidator = v.union(
+  ...COMPLIANCE_ASSESSMENT_STATUSES.map((s) => v.literal(s)),
+);
+
+/** Control-level assessment outcomes. */
+export const COMPLIANCE_ASSESSMENT_OUTCOMES = [
+  "compliant",
+  "partially_compliant",
+  "non_compliant",
+  "not_assessed",
+  "not_applicable",
+] as const;
+export type ComplianceAssessmentOutcome =
+  (typeof COMPLIANCE_ASSESSMENT_OUTCOMES)[number];
+
+export const COMPLIANCE_ASSESSMENT_OUTCOME_LABELS: Record<
+  ComplianceAssessmentOutcome,
+  string
+> = {
+  compliant: "Compliant",
+  partially_compliant: "Partially compliant",
+  non_compliant: "Non-compliant",
+  not_assessed: "Not assessed",
+  not_applicable: "Not applicable",
+};
+
+export const complianceAssessmentOutcomeValidator = v.union(
+  ...COMPLIANCE_ASSESSMENT_OUTCOMES.map((o) => v.literal(o)),
+);
+
+/** Outcomes that constitute an assessor's conclusion (not a non-answer). */
+export const COMPLIANCE_ASSESSMENT_VERDICTS = [
+  "compliant",
+  "partially_compliant",
+  "non_compliant",
+] as const;
+
+export function isAssessmentVerdict(
+  outcome: ComplianceAssessmentOutcome,
+): outcome is (typeof COMPLIANCE_ASSESSMENT_VERDICTS)[number] {
+  return (COMPLIANCE_ASSESSMENT_VERDICTS as readonly string[]).includes(outcome);
+}
+
+const ASSESSMENT_TRANSITIONS: Record<
+  ComplianceAssessmentStatus,
+  ComplianceAssessmentStatus[]
+> = {
+  draft: ["in_progress", "completed"],
+  in_progress: ["completed"],
+  completed: ["reviewed"],
+  reviewed: [],
+};
+
+export function canTransitionAssessment(
+  from: ComplianceAssessmentStatus,
+  to: ComplianceAssessmentStatus,
+): boolean {
+  return ASSESSMENT_TRANSITIONS[from]?.includes(to) ?? false;
+}
+
+/** A cycle that still accepts work. */
+export function isOpenAssessment(status: ComplianceAssessmentStatus): boolean {
+  return status === "draft" || status === "in_progress";
+}
+
+/** A cycle whose results are final and must not be rewritten. */
+export function isFinalAssessment(status: ComplianceAssessmentStatus): boolean {
+  return status === "completed" || status === "reviewed";
+}
+
+// Assessment limits.
+export const ASSESSMENT_TITLE_MAX = 200;
+export const ASSESSMENT_REFERENCE_MAX = 40;
+export const ASSESSMENT_SCOPE_MAX = 4000;
+export const ASSESSMENT_PERIOD_MAX = 120;
+/** Minimum rationale behind an assessor's conclusion. */
+export const ASSESSMENT_RATIONALE_MIN = 20;
+export const ASSESSMENT_RATIONALE_MAX = 4000;
+export const ASSESSMENT_FINDINGS_MAX = 4000;
+export const ASSESSMENT_REMEDIATION_MAX = 2000;
+export const ASSESSMENT_NOTES_MIN = 20;
+export const ASSESSMENT_REVIEW_NOTES_MAX = 2000;
+export const ASSESSMENT_EVIDENCE_UNLINK_REASON_MAX = 300;
+
+// ---------------------------------------------------------------------------
 // Evidence integrity + classification
 // ---------------------------------------------------------------------------
 

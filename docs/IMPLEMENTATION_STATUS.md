@@ -91,6 +91,24 @@ Not in this batch (by design): control testing, evidence mapping, compliance ass
 
 Not in this batch (by design): compliance scoring/percentages, control assessments against a maturity model, and automated effectiveness derivation.
 
+## Phase 3C — Batch 3: compliance assessments and assessment history *(uncommitted, awaiting review)*
+
+| Workstream | Status | Evidence |
+| --- | --- | --- |
+| Assessment cycles scoped to one adopted framework (reference, scope, period, start/due dates, assessor, status, creation/completion/review metadata) | ✅ | `src/convex/complianceAssessments.ts`, `/compliance/assessments` |
+| Control-level records with a SNAPSHOT of the control (code, title, domain, implementation, effectiveness, owner, framework) | ✅ | `complianceAssessmentItems.controlSnapshot` |
+| Outcomes: compliant, partially compliant, non-compliant, not assessed, not applicable; rationale required for every conclusion | ✅ | `assessControl`, `src/lib/compliance.ts` |
+| Control-test references and evidence links inform the conclusion; testing never sets the assessment outcome | ✅ | `controlTestIds`, `complianceAssessmentEvidence` |
+| Draft → in progress → completed → reviewed with server-side transition checks; completion blocked while any control is not assessed | ✅ | `startAssessment`, `completeAssessment`, `canTransitionAssessment` |
+| Finalised cycles immutable; corrections are superseding cycles; earlier results stay readable | ✅ | `supersedeAssessment`, `presentAssessment` |
+| Independent review (separation of duties): reviewer ≠ assessor and ≠ completer | ✅ | `reviewAssessment`, `canReview` |
+| Evidence links are rows: unlinking is audited and retains the evidence record and its hash | ✅ | `unlinkAssessmentEvidence`, `compliance.assessment_evidence_unlinked` |
+| Authorization: `compliance.view` reads, `compliance.manage` + active membership writes, server-derived organization, every id re-validated | ✅ | `resolveAccess`, `requireManager` |
+| Reporting: counts of cycles and outcomes, evidence gaps, outstanding remediation — no compliance percentage | ✅ | `assessmentSummary`, `ComplianceAssessmentsPage` |
+| Tests (structural + runtime + cross-tenant + review + immutability + Chromium journey) | ✅ | `tests/complianceAssessments.test.ts`, `tests/browser.compliance-assessments.test.ts` |
+
+Not in this batch (by design): weighted compliance percentages, maturity scoring, automated assessment of untested controls, and assessment-to-audit-engagement linkage.
+
 ## Phase 3 — Recommended next (not started)
 
 1. **User provisioning UI** — admin invites, role assignment, disable

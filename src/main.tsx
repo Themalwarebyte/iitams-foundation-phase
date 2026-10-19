@@ -118,6 +118,9 @@ const ComplianceFrameworksPage = lazy(
 const ComplianceControlsPage = lazy(
   () => import("./components/iitams/compliance/ComplianceControlsPage"),
 );
+const ComplianceAssessmentsPage = lazy(
+  () => import("./components/iitams/compliance/ComplianceAssessmentsPage"),
+);
 const AdminAccessReviewsPage = lazy(() =>
   import("./components/iitams/admin/AdminAccessReviewsPage").then((m) => ({
     default: m.AdminAccessReviewsPage,
@@ -212,8 +215,8 @@ const MODULE_ROUTES = [
   "/risk/treatments",
   "/risk/heat-map",
   "/risk/trends",
-  // Compliance (frameworks and controls have dedicated Phase-3C routes below)
-  "/compliance/assessments",
+  // Compliance (frameworks, controls and assessments have dedicated Phase-3C
+  // routes below)
   "/compliance/control-testing",
   "/compliance/evidence-mapping",
   "/compliance/dashboard",
@@ -341,6 +344,18 @@ createRoot(document.getElementById("root")!).render(
                     description="The control register is available to authorized users of your organization."
                   >
                     <ComplianceControlsPage />
+                  </RequireAuth>
+                }
+              />
+              {/* Phase 3C Batch 3 — compliance assessments */}
+              <Route
+                path="/compliance/assessments"
+                element={
+                  <RequireAuth
+                    title="Sign in to open compliance assessments"
+                    description="Assessment cycles are available to authorized users of your organization."
+                  >
+                    <ComplianceAssessmentsPage />
                   </RequireAuth>
                 }
               />

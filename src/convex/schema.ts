@@ -15,6 +15,8 @@ import {
   treatmentStrategyValidator,
 } from "../lib/risk";
 import {
+  complianceAssessmentOutcomeValidator,
+  complianceAssessmentStatusValidator,
   complianceEvidenceClassificationValidator,
   complianceFrameworkStatusValidator,
   controlApplicabilityValidator,
@@ -1010,6 +1012,124 @@ const schema = defineSchema(
       .index("by_organization_evidence", ["organizationId", "evidenceId"])
       .index("by_organization_test", ["organizationId", "testId"])
       .index("by_organization_control", ["organizationId", "controlId"]),
+
+    // ------------------------------------------------------------------
+    // COMPLIANCE ASSESSMENTS (Phase 3C — Batch 3)
+    // ------------------------------------------------------------------
+    // A cycle is scoped to one adopted framework. Control-level records are
+    // created with a SNAPSHOT of the control at assessment time, so editing the
+    // register later never rewrites what the assessor actually assessed. A
+    // finalised cycle (`completed` / `reviewed`) is never patched: corrections
+    // create a NEW cycle that supersedes it, keeping history readable.
+    complianceAssessments: defineTable({
+      organizationId: v.id("organizations"),
+      frameworkId: v.id("complianceFrameworks"),
+      // Human-readable per-organization identifier (CA-001…).
+      reference: v.string(),
+      title: v.string(),
+      scope: v.optional(v.string()),
+      periodLabel: v.optional(v.string()),
+      startDate: v.optional(v.number()),
+      dueDate: v.optional(v.number()),
+      assessorUserId: v.optional(v.id("users")),
+      assessorLabel: v.string(),
+      status: complianceAssessmentStatusValidator,
+      /** When true the cycle cannot be finalised without independent review. */
+      reviewRequired: v.boolean(),
+      completionNotes: v.optional(v.string()),
+      completedAt: v.optional(v.number()),
+      completedByUserId: v.optional(v.id("users")),
+      completedByLabel: v.optional(v.string()),
+      reviewNotes: v.optional(v.string()),
+      reviewedAt: v.optional(v.number()),
+      reviewedByUserId: v.optional(v.id("users")),
+      reviewedByLabel: v.optional(v.string()),
+      // Amendment chain: set on the REPLACEMENT cycle, pointing at the one it
+      // supersedes. The original row is never modified.
+      supersedesAssessmentId: v.optional(v.id("complianceAssessments")),
+      amendmentReason: v.optional(v.string()),
+      createdByUserId: v.id("users"),
+      createdByLabel: v.string(),
+      isDemo: v.optional(v.boolean()),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_framework", ["organizationId", "frameworkId"])
+      .index("by_organization_status", ["organizationId", "status"])
+      .index("by_organization_reference", ["organizationId", "reference"])
+      .index("by_organization_supersedes", [
+        "organizationId",
+        "supersedesAssessmentId",
+      ]),
+
+    complianceAssessmentItems: defineTable({
+      organizationId: v.id("organizations"),
+      assessmentId: v.id("complianceAssessments"),
+      frameworkId: v.id("complianceFrameworks"),
+      controlId: v.id("controls"),
+      // Immutable snapshot taken when the cycle was created: reassessment or
+      // register edits never rewrite the assessed detail.
+      controlSnapshot: v.object({
+        code: v.string(),
+        title: v.string(),
+        domain: v.optional(v.string()),
+        domainLabel: v.optional(v.string()),
+        implementationStatus: v.optional(v.string()),
+        implementationStatusLabel: v.optional(v.string()),
+        effectiveness: v.optional(v.string()),
+        ownerName: v.optional(v.string()),
+        frameworkCode: v.string(),
+        frameworkName: v.string(),
+      }),
+      outcome: complianceAssessmentOutcomeValidator,
+      rationale: v.optional(v.string()),
+      assessorUserId: v.optional(v.id("users")),
+      assessorLabel: v.optional(v.string()),
+      assessedAt: v.optional(v.number()),
+      // Control-test references a conclusion rests on; ids are re-validated
+      // against the organization AND the same control. Evidence links live in
+      // `complianceAssessmentEvidence` (one row per link) so removing one is an
+      // auditable event rather than a silently rewritten array.
+      controlTestIds: v.optional(v.array(v.id("complianceControlTests"))),
+      findings: v.optional(v.string()),
+      remediation: v.optional(v.string()),
+      isDemo: v.optional(v.boolean()),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_assessment", ["organizationId", "assessmentId"])
+      .index("by_organization_control", ["organizationId", "controlId"])
+      // One record per control per cycle.
+      .index("by_organization_assessment_control", [
+        "organizationId",
+        "assessmentId",
+        "controlId",
+      ]),
+
+    // Evidence links recorded against an assessment item. Like the control-test
+    // mappings, removing a link is an auditable event, not a deletion: the
+    // evidence record, its hash and the audit trail survive.
+    complianceAssessmentEvidence: defineTable({
+      organizationId: v.id("organizations"),
+      assessmentId: v.id("complianceAssessments"),
+      itemId: v.id("complianceAssessmentItems"),
+      controlId: v.id("controls"),
+      evidenceId: v.id("complianceEvidence"),
+      linkedByUserId: v.id("users"),
+      linkedByLabel: v.string(),
+      linkedAt: v.number(),
+      active: v.boolean(),
+      unlinkedAt: v.optional(v.number()),
+      unlinkedByUserId: v.optional(v.id("users")),
+      unlinkedByLabel: v.optional(v.string()),
+      unlinkReason: v.optional(v.string()),
+      isDemo: v.optional(v.boolean()),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_assessment", ["organizationId", "assessmentId"])
+      .index("by_organization_item", ["organizationId", "itemId"])
+      .index("by_organization_evidence", ["organizationId", "evidenceId"]),
 
     // ------------------------------------------------------------------
     // CYBERSECURITY ASSURANCE & VULNERABILITY MANAGEMENT

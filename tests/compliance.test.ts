@@ -374,6 +374,9 @@ describe("Compliance — structural guards", () => {
     );
     expect(queriedTables).toEqual(
       new Set([
+        "complianceAssessmentEvidence",
+        "complianceAssessmentItems",
+        "complianceAssessments",
         "complianceEvidenceMappings",
         "complianceEvidence",
         "complianceControlTests",
@@ -382,7 +385,9 @@ describe("Compliance — structural guards", () => {
       ]),
     );
     for (const deletion of resetBody.matchAll(/ctx\.db\.delete\(([\w.]+)\)/g)) {
-      expect(deletion[1]).toMatch(/^(mapping|record|test|control|framework)\._id$/);
+      expect(deletion[1]).toMatch(
+        /^(mapping|record|test|control|framework|link|item|assessment)\._id$/,
+      );
     }
     expect(resetBody).not.toContain("userProfiles");
     expect(resetBody).not.toContain('"risks"');

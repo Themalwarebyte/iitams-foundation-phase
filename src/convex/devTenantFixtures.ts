@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { guestAuthEnabled } from "./access";
+import { effectiveMembershipStatus } from "../lib/membership";
 
 /**
  * DEVELOPMENT-ONLY tenant fixtures for behavioural isolation tests.
@@ -33,6 +34,11 @@ import { guestAuthEnabled } from "./access";
  */
 /** Dedicated compliance-manager fixture identity (tenant M only). */
 export const COMPLIANCE_FIXTURE_EMAIL = "compliance-manager-m@iitams.test";
+/**
+ * Second tenant-M compliance manager, used to prove that independent review is
+ * recorded by a DIFFERENT person from the assessor.
+ */
+export const COMPLIANCE_REVIEWER_EMAIL = "compliance-reviewer-m@iitams.test";
 
 export const ensureTenantFixtures = internalMutation({
   args: {},
@@ -188,6 +194,12 @@ export const ensureTenantFixtures = internalMutation({
       userId: string;
       email: string;
     } | null = null;
+    let complianceReviewer: {
+      organizationId: string;
+      organizationCode: string;
+      userId: string;
+      email: string;
+    } | null = null;
     const tenantM = organizations.find(
       (o) => o.organizationCode === "IITAMS-TEST-M",
     );
@@ -243,6 +255,60 @@ export const ensureTenantFixtures = internalMutation({
         userId: String(fixtureUser._id),
         email,
       };
+
+      // A second manager in the SAME disposable tenant, so separation of duties
+      // (reviewer ≠ assessor) can be exercised positively rather than only by
+      // asserting the refusal.
+      const reviewerEmail = COMPLIANCE_REVIEWER_EMAIL;
+      let reviewerUser = await ctx.db
+        .query("users")
+        .withIndex("email", (q) => q.eq("email", reviewerEmail))
+        .unique();
+      if (reviewerUser && reviewerUser.isAnonymous === true) {
+        throw new Error(
+          `Refused: ${reviewerEmail} is an anonymous session, not a fixture identity`,
+        );
+      }
+      if (!reviewerUser) {
+        const userId = await ctx.db.insert("users", {
+          name: "IITAMS Test Tenant M compliance reviewer",
+          email: reviewerEmail,
+          emailVerificationTime: now,
+          isAnonymous: false,
+        });
+        reviewerUser = await ctx.db.get(userId);
+      }
+      if (!reviewerUser) {
+        throw new Error("Fixture reviewer identity could not be created");
+      }
+      const reviewerProfile = await ctx.db
+        .query("userProfiles")
+        .withIndex("userId", (q) => q.eq("userId", reviewerUser!._id))
+        .unique();
+      if (
+        reviewerProfile?.organizationId !== undefined &&
+        reviewerProfile.organizationId !== (tenantM.organizationId as never)
+      ) {
+        throw new Error(
+          `Refused: ${reviewerEmail} already belongs to another organization (fixtures never migrate memberships)`,
+        );
+      }
+      if (!reviewerProfile) {
+        await ctx.db.insert("userProfiles", {
+          userId: reviewerUser._id,
+          organizationId: tenantM.organizationId as never,
+          role: "admin",
+          jobTitle: "Compliance fixture reviewer",
+          membershipStatus: "active",
+          lastSeenAt: now,
+        });
+      }
+      complianceReviewer = {
+        organizationId: tenantM.organizationId,
+        organizationCode: tenantM.organizationCode,
+        userId: String(reviewerUser._id),
+        email: reviewerEmail,
+      };
     }
 
     // Tenant B also carries an overdue-review fixture so the review-overdue
@@ -278,7 +344,7 @@ export const ensureTenantFixtures = internalMutation({
       }
     }
 
-    return { organizations, complianceAdmin };
+    return { organizations, complianceAdmin, complianceReviewer };
   },
 });
 
@@ -429,22 +495,52 @@ export const resetComplianceFixtures = internalMutation({
     }
     const org = await fixtureOrganization(ctx, "IITAMS-TEST-M");
     if (!org) {
-      return {
-        deletedControls: 0,
-        deletedFrameworks: 0,
-        deletedTests: 0,
-        deletedEvidence: 0,
-        deletedMappings: 0,
-        remaining: 0,
-      };
+    return {
+      deletedControls: 0,
+      deletedFrameworks: 0,
+      deletedTests: 0,
+      deletedEvidence: 0,
+      deletedMappings: 0,
+      deletedAssessments: 0,
+      deletedAssessmentItems: 0,
+      deletedAssessmentEvidence: 0,
+      remaining: 0,
+    };
     }
     const requested = args.maxRecords ?? 25;
     const maxRecords = Math.min(Math.max(Math.floor(requested), 1), 50);
 
-    // Phase 3C Batch 2 records are removed first, innermost first, so a
-    // control is never deleted while tests, evidence or mappings still
-    // reference it. Evidence blobs are removed from storage as well, so the
-    // cleanup leaves no orphaned files behind.
+    // Phase 3C records are removed innermost first, so a control is never
+    // deleted while assessments, tests, evidence or mappings still reference
+    // it. Evidence blobs are removed from storage as well, so the cleanup
+    // leaves no orphaned files behind.
+    const assessmentEvidence = await ctx.db
+      .query("complianceAssessmentEvidence")
+      .withIndex("by_organization", (q) => q.eq("organizationId", org._id))
+      .take(200);
+    const assessmentEvidenceBatch = assessmentEvidence.slice(0, maxRecords * 4);
+    for (const link of assessmentEvidenceBatch) {
+      await ctx.db.delete(link._id);
+    }
+
+    const assessmentItems = await ctx.db
+      .query("complianceAssessmentItems")
+      .withIndex("by_organization", (q) => q.eq("organizationId", org._id))
+      .take(200);
+    const assessmentItemBatch = assessmentItems.slice(0, maxRecords * 4);
+    for (const item of assessmentItemBatch) {
+      await ctx.db.delete(item._id);
+    }
+
+    const assessments = await ctx.db
+      .query("complianceAssessments")
+      .withIndex("by_organization", (q) => q.eq("organizationId", org._id))
+      .take(200);
+    const assessmentBatch = assessments.slice(0, maxRecords);
+    for (const assessment of assessmentBatch) {
+      await ctx.db.delete(assessment._id);
+    }
+
     const mappings = await ctx.db
       .query("complianceEvidenceMappings")
       .withIndex("by_organization", (q) => q.eq("organizationId", org._id))
@@ -506,6 +602,13 @@ export const resetComplianceFixtures = internalMutation({
         )
         .first();
       if (remainingTests) continue;
+      const remainingAssessments = await ctx.db
+        .query("complianceAssessments")
+        .withIndex("by_organization_framework", (q) =>
+          q.eq("organizationId", org._id).eq("frameworkId", framework._id),
+        )
+        .first();
+      if (remainingAssessments) continue;
       await ctx.db.delete(framework._id);
       frameworkBatch.push(framework._id);
     }
@@ -516,6 +619,9 @@ export const resetComplianceFixtures = internalMutation({
       deletedTests: testBatch.length,
       deletedEvidence: evidenceBatch.length,
       deletedMappings: mappingBatch.length,
+      deletedAssessments: assessmentBatch.length,
+      deletedAssessmentItems: assessmentItemBatch.length,
+      deletedAssessmentEvidence: assessmentEvidenceBatch.length,
       remaining: Math.max(
         controls.length -
           controlBatch.length +
@@ -526,7 +632,13 @@ export const resetComplianceFixtures = internalMutation({
           evidence.length -
           evidenceBatch.length +
           mappings.length -
-          mappingBatch.length,
+          mappingBatch.length +
+          assessments.length -
+          assessmentBatch.length +
+          assessmentItems.length -
+          assessmentItemBatch.length +
+          assessmentEvidence.length -
+          assessmentEvidenceBatch.length,
         0,
       ),
     };
