@@ -232,7 +232,8 @@ export async function nextReference(
   table:
     | "securityAssessments"
     | "vulnerabilities"
-    | "vulnerabilityRemediationActions",
+    | "vulnerabilityRemediationActions"
+    | "cyberTestCases",
   organizationId: Id<"organizations">,
   prefix: string,
 ): Promise<string> {
@@ -248,9 +249,14 @@ export async function nextReference(
       .query("vulnerabilities")
       .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
       .take(limit);
-  } else {
+  } else if (table === "vulnerabilityRemediationActions") {
     rows = await ctx.db
       .query("vulnerabilityRemediationActions")
+      .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
+      .take(limit);
+  } else {
+    rows = await ctx.db
+      .query("cyberTestCases")
       .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
       .take(limit);
   }
@@ -274,6 +280,7 @@ export async function appendCyberEvent(
     vulnerabilityId?: Id<"vulnerabilities">;
     assessmentId?: Id<"securityAssessments">;
     actionId?: Id<"vulnerabilityRemediationActions">;
+    testCaseId?: Id<"cyberTestCases">;
     type: string;
     fromStatus?: string;
     toStatus?: string;
@@ -288,6 +295,7 @@ export async function appendCyberEvent(
     vulnerabilityId: input.vulnerabilityId,
     assessmentId: input.assessmentId,
     actionId: input.actionId,
+    testCaseId: input.testCaseId,
     type: input.type,
     fromStatus: input.fromStatus,
     toStatus: input.toStatus,
@@ -480,6 +488,20 @@ export function presentAssessment(
     cancelledAt: assessment.cancelledAt ?? null,
     cancelledByLabel: assessment.cancelledByLabel ?? null,
     cancelReason: assessment.cancelReason ?? null,
+    // Phase 4A Batch 2A — testing scope and written authorization.
+    subtype: assessment.subtype ?? null,
+    scopeStatus: assessment.scopeStatus ?? "draft",
+    systemsInScope: assessment.systemsInScope ?? null,
+    exclusions: assessment.exclusions ?? null,
+    leadTesterUserId: assessment.leadTesterUserId ?? null,
+    leadTesterLabel: assessment.leadTesterLabel ?? null,
+    methodology: assessment.methodology ?? null,
+    rulesOfEngagement: assessment.rulesOfEngagement ?? null,
+    authorizationReference: assessment.authorizationReference ?? null,
+    authorizedStartAt: assessment.authorizedStartAt ?? null,
+    authorizedEndAt: assessment.authorizedEndAt ?? null,
+    scopeAuthorizedAt: assessment.scopeAuthorizedAt ?? null,
+    scopeAuthorizedByLabel: assessment.scopeAuthorizedByLabel ?? null,
     // DERIVED, never stored: the assessment row carries no finding counters.
     vulnerabilityCount: derived.vulnerabilities.length,
     openVulnerabilityCount: openVulnerabilities,

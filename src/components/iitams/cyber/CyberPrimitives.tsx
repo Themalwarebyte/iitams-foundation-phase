@@ -79,6 +79,26 @@ const ASSESSMENT_TONES: Record<string, string> = {
   cancelled: "bg-muted text-muted-foreground border-border",
 };
 
+const TEST_STATUS_TONES: Record<string, string> = {
+  planned: "bg-info/10 text-info border-info/25",
+  in_progress: "bg-warning/15 text-foreground/90 border-warning/40",
+  completed: "bg-success/10 text-success border-success/25",
+  not_applicable: "bg-muted text-muted-foreground border-border",
+  cancelled: "bg-muted text-muted-foreground border-border",
+};
+
+const TEST_OUTCOME_TONES: Record<string, string> = {
+  pass: "bg-success/10 text-success border-success/25",
+  fail: "bg-critical/10 text-critical border-critical/30",
+  inconclusive: "bg-warning/15 text-foreground/90 border-warning/40",
+  not_tested: "bg-muted text-muted-foreground border-border",
+};
+
+const SCOPE_TONES: Record<string, string> = {
+  draft: "bg-warning/15 text-foreground/90 border-warning/40",
+  authorized: "bg-success/10 text-success border-success/25",
+};
+
 const ACTION_TONES: Record<string, string> = {
   open: "bg-info/10 text-info border-info/25",
   in_progress: "bg-warning/15 text-foreground/90 border-warning/40",
@@ -143,6 +163,36 @@ export function AssessmentStatusPill({
   label: string;
 }) {
   return <Pill label={label} tone={ASSESSMENT_TONES[status]} />;
+}
+
+export function TestStatusPill({
+  status,
+  label,
+}: {
+  status: string;
+  label: string;
+}) {
+  return <Pill label={label} tone={TEST_STATUS_TONES[status]} />;
+}
+
+export function TestOutcomePill({
+  outcome,
+  label,
+}: {
+  outcome: string;
+  label: string;
+}) {
+  return <Pill label={label} tone={TEST_OUTCOME_TONES[outcome]} />;
+}
+
+export function ScopeStatusPill({
+  status,
+  label,
+}: {
+  status: string;
+  label: string;
+}) {
+  return <Pill label={label} tone={SCOPE_TONES[status]} />;
 }
 
 export function ActionStatusPill({

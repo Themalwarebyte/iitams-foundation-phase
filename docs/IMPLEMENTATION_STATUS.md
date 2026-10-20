@@ -148,7 +148,7 @@ was tidied. The 2 skips are the pre-existing conditional
 skip themselves when the shared dev deployment already holds that fixture —
 they are reported as skipped, not as passing.
 
-## Phase 4A — Cybersecurity Assurance Batch 1 *(implemented, uncommitted for review)*
+## Phase 4A — Cybersecurity Assurance Batch 1 *(committed `ac879fe`)*
 
 See [`CYBERSECURITY_ASSURANCE.md`](CYBERSECURITY_ASSURANCE.md) for the full design notes.
 
@@ -168,7 +168,28 @@ See [`CYBERSECURITY_ASSURANCE.md`](CYBERSECURITY_ASSURANCE.md) for the full desi
 | Frontend: registers with search/filters, detail, lifecycle controls, action tracking, evidence upload, history, loading/empty/unauthorized states | ✅ | `src/components/iitams/cyber/*` |
 | Tests (structural + runtime + cross-tenant + read-only role + Chromium journey) | ✅ | `tests/cyber.security.test.ts` (18), `tests/cyberAssurance.test.ts` (5), `tests/browser.cyber-assurance.test.ts` (1) |
 
-Not in this batch (by design): penetration-test / network / application-security / configuration-review workflows, scanner integrations, CVSS computation, security scoring, and Business Continuity work.
+Not in this batch (by design): scanner integrations, CVSS computation, security scoring, and Business Continuity work. The testing workflow is Batch 2A below.
+
+## Phase 4A — Cybersecurity Assurance Batch 2A *(implemented, uncommitted for review)*
+
+Security testing engagements and test cases, extending the same assessment
+register. Full design notes in [`CYBERSECURITY_ASSURANCE.md`](CYBERSECURITY_ASSURANCE.md).
+
+| Workstream | Status | Evidence |
+| --- | --- | --- |
+| Testing categories on the existing assessment model (penetration testing, network security review, web/application testing, configuration review) + optional subtype | ✅ | `CYBER_ASSESSMENT_TYPE_LABELS`, `securityAssessments.subtype` |
+| Testing scope & authorization (in-scope systems, explicit exclusions, authorized window, lead tester, methodology, rules of engagement, written authorization reference, scope status) | ✅ | `authorizeTestingScope` |
+| No intrusive work from a record: execution requires an `in_progress` assessment **and** an `authorized` scope; no scanners/exploit code in the app | ✅ | `mayExecuteTests`, `startTestCase` |
+| Organization-scoped test cases (`CT-001…`) with objective, procedure, expected behaviour, tester, dates, evidence, linked vulnerability | ✅ | `src/convex/cyberTesting.ts`, `cyberTestCases` |
+| Status ≠ outcome; completion needs outcome + observations + execution date; N/A and cancelled require a documented reason | ✅ | `completeTestCase`, `markTestCaseNotApplicable`, `cancelTestCase` |
+| Completed results immutable; append-only history; one independent review that refuses the tester/executor | ✅ | `updateTestCase`, `reviewTestCase`, `vulnerabilityEvents.testCaseId` |
+| A failed test never creates/verifies a vulnerability; linking is traceability only | ✅ | `completeTestCase`, `linkTestCaseVulnerability`, runtime tests |
+| Assessment completion blocked while tests are planned/in progress | ✅ | `completeAssessment` + `outstandingTestsForAssessment` |
+| Truthful roll-ups (planned, in progress, completed, pass, fail, inconclusive, untested, linked vulnerabilities) with no effectiveness claim | ✅ | `summarizeTestCases`, `testingSummary` |
+| Frontend: scope/authorization section, test-case register, creation, execution, outcome, evidence, links, history, search/filters, read-only | ✅ | `src/components/iitams/cyber/CyberTestingPanel.tsx` |
+| Tests (structural + runtime + cross-tenant + read-only + pagination + Chromium journey) | ✅ | `tests/cyberTesting.test.ts` (21), `tests/browser.cyber-testing.test.ts` (1) |
+
+Not in Batch 2A (by design): automated penetration-testing/scanner integrations, exploit execution, security scoring, and Business Continuity work.
 
 ## Phase 3 — Recommended next (not started)
 

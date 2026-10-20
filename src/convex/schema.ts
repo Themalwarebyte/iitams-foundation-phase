@@ -7,7 +7,11 @@ import {
   cyberAssessmentStatusValidator,
   cyberAssessmentTypeValidator,
   cyberEvidenceClassificationValidator,
+  cyberScopeStatusValidator,
   cyberSeverityValidator,
+  cyberTestCategoryValidator,
+  cyberTestOutcomeValidator,
+  cyberTestStatusValidator,
   cyberVulnerabilitySourceValidator,
   cyberVulnerabilityStatusValidator,
 } from "../lib/cyber";
@@ -1351,6 +1355,23 @@ const schema = defineSchema(
       highFindings: v.optional(v.number()),
       mediumFindings: v.optional(v.number()),
       lowFindings: v.optional(v.number()),
+      // Phase 4A Batch 2A — testing scope and written authorization. All
+      // optional: an assessment that is not a testing engagement carries none
+      // of these, and a recorded engagement starts as an UNAUTHORIZED draft.
+      subtype: v.optional(v.string()),
+      scopeStatus: v.optional(cyberScopeStatusValidator),
+      systemsInScope: v.optional(v.string()),
+      exclusions: v.optional(v.string()),
+      leadTesterUserId: v.optional(v.id("users")),
+      leadTesterLabel: v.optional(v.string()),
+      methodology: v.optional(v.string()),
+      rulesOfEngagement: v.optional(v.string()),
+      authorizationReference: v.optional(v.string()),
+      authorizedStartAt: v.optional(v.number()),
+      authorizedEndAt: v.optional(v.number()),
+      scopeAuthorizedAt: v.optional(v.number()),
+      scopeAuthorizedByUserId: v.optional(v.id("users")),
+      scopeAuthorizedByLabel: v.optional(v.string()),
       lastTransitionAt: v.optional(v.number()),
       isDemo: v.optional(v.boolean()),
       ...auditFields,
@@ -1360,6 +1381,60 @@ const schema = defineSchema(
       .index("by_organization_status", ["organizationId", "status"])
       .index("by_organization_reference", ["organizationId", "reference"])
       .index("by_organization_owner", ["organizationId", "ownerUserId"]),
+
+    // Phase 4A Batch 2A — organization-scoped security test cases. A test case
+    // is always linked to an EXISTING cybersecurity assessment (no second
+    // assessment table), and stores what the tester recorded. A failed test
+    // never creates or verifies a vulnerability by itself.
+    cyberTestCases: defineTable({
+      organizationId: v.id("organizations"),
+      assessmentId: v.id("securityAssessments"),
+      reference: v.string(),
+      title: v.string(),
+      category: cyberTestCategoryValidator,
+      systemUnderTest: v.string(),
+      objective: v.string(),
+      procedure: v.string(),
+      expectedBehaviour: v.string(),
+      testerUserId: v.optional(v.id("users")),
+      testerLabel: v.string(),
+      plannedDate: v.optional(v.number()),
+      executionDate: v.optional(v.number()),
+      status: cyberTestStatusValidator,
+      // Status and outcome are separate: `completed` is not a result by itself.
+      outcome: cyberTestOutcomeValidator,
+      observations: v.optional(v.string()),
+      recommendations: v.optional(v.string()),
+      notes: v.optional(v.string()),
+      evidenceIds: v.array(v.id("cyberEvidence")),
+      // Link to an existing vulnerability record (traceability only).
+      vulnerabilityId: v.optional(v.id("vulnerabilities")),
+      reason: v.optional(v.string()),
+      startedAt: v.optional(v.number()),
+      startedByUserId: v.optional(v.id("users")),
+      startedByLabel: v.optional(v.string()),
+      completedAt: v.optional(v.number()),
+      completedByUserId: v.optional(v.id("users")),
+      completedByLabel: v.optional(v.string()),
+      notApplicableAt: v.optional(v.number()),
+      cancelledAt: v.optional(v.number()),
+      cancelledByUserId: v.optional(v.id("users")),
+      cancelledByLabel: v.optional(v.string()),
+      reviewedAt: v.optional(v.number()),
+      reviewedByUserId: v.optional(v.id("users")),
+      reviewedByLabel: v.optional(v.string()),
+      reviewNotes: v.optional(v.string()),
+      lastTransitionAt: v.optional(v.number()),
+      isDemo: v.optional(v.boolean()),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_created", ["organizationId", "createdAt"])
+      .index("by_organization_assessment", ["organizationId", "assessmentId"])
+      .index("by_organization_status", ["organizationId", "status"])
+      .index("by_organization_reference", ["organizationId", "reference"])
+      .index("by_organization_tester", ["organizationId", "testerUserId"])
+      .index("by_organization_vulnerability", ["organizationId", "vulnerabilityId"]),
 
     // Explicit remediation actions for a vulnerability. A row saying
     // "completed" is a CLAIM; only a different authorized verifier may record
@@ -1405,6 +1480,8 @@ const schema = defineSchema(
       vulnerabilityId: v.optional(v.id("vulnerabilities")),
       assessmentId: v.optional(v.id("securityAssessments")),
       actionId: v.optional(v.id("vulnerabilityRemediationActions")),
+      // Phase 4A Batch 2A — test-case history reuses this append-only table.
+      testCaseId: v.optional(v.id("cyberTestCases")),
       type: v.string(),
       fromStatus: v.optional(v.string()),
       toStatus: v.optional(v.string()),
@@ -1417,7 +1494,8 @@ const schema = defineSchema(
       .index("by_organization", ["organizationId"])
       .index("by_organization_vulnerability", ["organizationId", "vulnerabilityId"])
       .index("by_organization_assessment", ["organizationId", "assessmentId"])
-      .index("by_organization_action", ["organizationId", "actionId"]),
+      .index("by_organization_action", ["organizationId", "actionId"])
+      .index("by_organization_test", ["organizationId", "testCaseId"]),
 
     // Cybersecurity evidence. The audit `evidence` table is engagement-shaped
     // and the compliance evidence table is control-shaped; neither can hold

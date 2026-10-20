@@ -121,10 +121,10 @@ export const cyberAssessmentTypeValidator = v.union(
 
 export const CYBER_ASSESSMENT_TYPE_LABELS: Record<CyberAssessmentType, string> =
   {
-    penetration_test: "Penetration test",
-    network_assessment: "Network assessment",
-    application_security: "Application security review",
-    configuration_review: "Configuration review",
+    penetration_test: "Penetration testing",
+    network_assessment: "Network security review",
+    application_security: "Web/application security testing",
+    configuration_review: "Security configuration review",
     red_team: "Red team exercise",
   };
 
@@ -379,6 +379,14 @@ export const CYBER_VERIFICATION_NOTES_MIN = 15;
 export const CYBER_REASON_MIN = 10;
 export const CYBER_OWNER_LABEL_MAX = 120;
 
+/** Batch 2A — testing scope and test-case detail limits. */
+export const CYBER_SUBTYPE_MAX = 80;
+export const CYBER_METHODOLOGY_MAX = 500;
+export const CYBER_AUTHORIZATION_REF_MAX = 160;
+export const CYBER_TEST_OBSERVATIONS_MIN = 15;
+export const CYBER_TEST_REVIEW_MIN = 10;
+export const CYBER_TEST_EXPECTED_MIN = 10;
+
 /** Evidence constraints — mirrors the compliance evidence limits. */
 export const CYBER_EVIDENCE_FILENAME_MAX = 200;
 export const CYBER_EVIDENCE_DESCRIPTION_MAX = 500;
@@ -425,6 +433,264 @@ export function mayReadRestrictedCyberEvidence(canManage: boolean): boolean {
   return canManage;
 }
 
+// ---------------------------------------------------------------------------
+// Security testing scope & authorization (Phase 4A — Batch 2A)
+// ---------------------------------------------------------------------------
+
+/**
+ * Scope status of an authorized testing engagement. A scope starts as `draft`:
+ * recording an engagement never authorizes intrusive work. Only an explicit
+ * authorization (which requires in-scope systems, exclusions, a window, a lead
+ * tester, methodology, rules of engagement and an authorization reference) may
+ * move it to `authorized`, and no test may be executed before it is.
+ */
+export const CYBER_SCOPE_STATUSES = ["draft", "authorized"] as const;
+export type CyberScopeStatus = (typeof CYBER_SCOPE_STATUSES)[number];
+
+export const cyberScopeStatusValidator = v.union(
+  ...CYBER_SCOPE_STATUSES.map((s) => v.literal(s)),
+);
+
+export const CYBER_SCOPE_STATUS_LABELS: Record<CyberScopeStatus, string> = {
+  draft: "Draft (not authorized)",
+  authorized: "Authorized",
+};
+
+/** Execution is permitted only inside an authorized scope that has started. */
+export function mayExecuteTests(
+  assessmentStatus: CyberAssessmentStatus,
+  scopeStatus: CyberScopeStatus | undefined,
+): boolean {
+  return assessmentStatus === "in_progress" && scopeStatus === "authorized";
+}
+
+/**
+ * Normalize a scope entry or a test target for a deterministic comparison.
+ * Scope membership and exclusions are matched on this normalized text, so the
+ * server and the UI always agree on whether a target is authorized.
+ */
+export function normalizeCyberTarget(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/** True when `now` is inside the recorded written-authorization window. */
+export function isWithinTestingWindow(
+  startAt: number | undefined,
+  endAt: number | undefined,
+  now: number,
+): boolean {
+  if (startAt === undefined || endAt === undefined) return false;
+  return now >= startAt && now <= endAt;
+}
+
+/**
+ * A target named in the exclusions can never be executed, whatever else the
+ * scope says. An empty exclusion list (or the literal "none") excludes nothing.
+ */
+export function isTargetExcluded(
+  exclusions: string | undefined,
+  target: string,
+): boolean {
+  const normalized = normalizeCyberTarget(target);
+  if (normalized.length < 4) return false;
+  const text = normalizeCyberTarget(exclusions ?? "");
+  if (!text || text === "none") return false;
+  return text.includes(normalized);
+}
+
+/** The target must be declared in the authorized in-scope systems list. */
+export function isTargetInAuthorizedScope(
+  systemsInScope: string | undefined,
+  target: string,
+): boolean {
+  const normalized = normalizeCyberTarget(target);
+  if (!normalized) return false;
+  const text = normalizeCyberTarget(systemsInScope ?? "");
+  return text.length > 0 && text.includes(normalized);
+}
+
+export type TestingExecution = { allowed: boolean; reason: string | null };
+
+/**
+ * The full server-side execution gate for a security test: assessment state,
+ * authorized scope, the written window and the specific target. The same rule
+ * is used to present the reason to the UI, so no client can bypass it and no
+ * screen can silently imply execution was permitted.
+ */
+export function testingExecutionStatus(input: {
+  assessmentStatus: CyberAssessmentStatus;
+  scopeStatus: CyberScopeStatus | undefined;
+  systemsInScope: string | undefined;
+  exclusions: string | undefined;
+  authorizedStartAt: number | undefined;
+  authorizedEndAt: number | undefined;
+  target: string;
+  now: number;
+}): TestingExecution {
+  if (!mayExecuteTests(input.assessmentStatus, input.scopeStatus)) {
+    return {
+      allowed: false,
+      reason:
+        "Testing can only start inside an authorized scope on an assessment that is in progress",
+    };
+  }
+  if (
+    !isWithinTestingWindow(
+      input.authorizedStartAt,
+      input.authorizedEndAt,
+      input.now,
+    )
+  ) {
+    return {
+      allowed: false,
+      reason:
+        "Execution is refused: today is outside the authorized testing window recorded for this engagement",
+    };
+  }
+  if (isTargetExcluded(input.exclusions, input.target)) {
+    return {
+      allowed: false,
+      reason: `Execution is refused: “${input.target}” is named in the explicit exclusions of this authorization`,
+    };
+  }
+  if (!isTargetInAuthorizedScope(input.systemsInScope, input.target)) {
+    return {
+      allowed: false,
+      reason: `Execution is refused: “${input.target}” is not listed in the authorized testing scope`,
+    };
+  }
+  return { allowed: true, reason: null };
+}
+
+// ---------------------------------------------------------------------------
+// Security test cases
+// ---------------------------------------------------------------------------
+
+export const CYBER_TEST_CATEGORIES = [
+  "identity_authentication",
+  "authorization_access",
+  "input_validation",
+  "cryptography_data_protection",
+  "network_security",
+  "configuration_hardening",
+  "logging_monitoring",
+  "resilience_recovery",
+  "other",
+] as const;
+export type CyberTestCategory = (typeof CYBER_TEST_CATEGORIES)[number];
+
+export const cyberTestCategoryValidator = v.union(
+  ...CYBER_TEST_CATEGORIES.map((c) => v.literal(c)),
+);
+
+export const CYBER_TEST_CATEGORY_LABELS: Record<CyberTestCategory, string> = {
+  identity_authentication: "Identity & authentication",
+  authorization_access: "Authorization & access control",
+  input_validation: "Input validation",
+  cryptography_data_protection: "Cryptography & data protection",
+  network_security: "Network security",
+  configuration_hardening: "Configuration hardening",
+  logging_monitoring: "Logging & monitoring",
+  resilience_recovery: "Resilience & recovery",
+  other: "Other",
+};
+
+/**
+ * Test execution status. `completed` is terminal and immutable: a correction is
+ * a new test case, never a silent rewrite of a recorded historical result.
+ */
+export const CYBER_TEST_STATUSES = [
+  "planned",
+  "in_progress",
+  "completed",
+  "not_applicable",
+  "cancelled",
+] as const;
+export type CyberTestStatus = (typeof CYBER_TEST_STATUSES)[number];
+
+export const cyberTestStatusValidator = v.union(
+  ...CYBER_TEST_STATUSES.map((s) => v.literal(s)),
+);
+
+export const CYBER_TEST_STATUS_LABELS: Record<CyberTestStatus, string> = {
+  planned: "Planned",
+  in_progress: "In progress",
+  completed: "Completed",
+  not_applicable: "Not applicable",
+  cancelled: "Cancelled",
+};
+
+export const CYBER_TEST_TRANSITIONS: Record<
+  CyberTestStatus,
+  CyberTestStatus[]
+> = {
+  planned: ["in_progress", "not_applicable", "cancelled"],
+  in_progress: ["completed", "not_applicable", "cancelled"],
+  completed: [],
+  not_applicable: [],
+  cancelled: [],
+};
+
+export function canTransitionTest(
+  from: CyberTestStatus,
+  to: CyberTestStatus,
+): boolean {
+  return CYBER_TEST_TRANSITIONS[from]?.includes(to) ?? false;
+}
+
+/** A recorded result. Status and outcome are DISTINCT fields on purpose. */
+export const CYBER_TEST_OUTCOMES = [
+  "not_tested",
+  "pass",
+  "fail",
+  "inconclusive",
+] as const;
+export type CyberTestOutcome = (typeof CYBER_TEST_OUTCOMES)[number];
+
+export const cyberTestOutcomeValidator = v.union(
+  ...CYBER_TEST_OUTCOMES.map((o) => v.literal(o)),
+);
+
+export const CYBER_TEST_OUTCOME_LABELS: Record<CyberTestOutcome, string> = {
+  not_tested: "Not tested",
+  pass: "Pass",
+  fail: "Fail",
+  inconclusive: "Inconclusive",
+};
+
+/** Outcomes that represent a recorded test result (never asserted without one). */
+export const CYBER_RECORDED_OUTCOMES: CyberTestOutcome[] = [
+  "pass",
+  "fail",
+  "inconclusive",
+];
+
+export function isRecordedOutcome(outcome: CyberTestOutcome): boolean {
+  return CYBER_RECORDED_OUTCOMES.includes(outcome);
+}
+
+/** Tests that still block completing their assessment. */
+export function isOutstandingTest(status: CyberTestStatus): boolean {
+  return status === "planned" || status === "in_progress";
+}
+
+/**
+ * A vulnerability only counts as confirmed once a human has confirmed it; an
+ * `open` record (or a false positive) is not a confirmed finding.
+ */
+export function isConfirmedVulnerabilityStatus(
+  status: CyberVulnerabilityStatus,
+): boolean {
+  return (
+    status === "confirmed" ||
+    status === "in_remediation" ||
+    status === "remediated" ||
+    status === "verified" ||
+    status === "risk_accepted" ||
+    status === "closed"
+  );
+}
+
 /**
  * Append-only history entry types. The events table is insert-only: status
  * changes, verifications and refusals are all recorded with actor attribution.
@@ -456,4 +722,16 @@ export const CYBER_EVENT_TYPES = [
   "evidence_recorded",
   "evidence_linked",
   "evidence_unlinked",
+  // Batch 2A — security testing engagements and test cases
+  "assessment_scope_authorized",
+  "test_case_created",
+  "test_case_updated",
+  "test_started",
+  "test_observations_recorded",
+  "test_evidence_linked",
+  "test_vulnerability_linked",
+  "test_completed",
+  "test_not_applicable",
+  "test_cancelled",
+  "test_reviewed",
 ] as const;

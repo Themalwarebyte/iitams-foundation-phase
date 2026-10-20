@@ -17,6 +17,10 @@ import {
 } from "../lib/cyber";
 import { effectiveMembershipStatus } from "../lib/membership";
 import {
+  assessmentTestingDetail,
+  outstandingTestsForAssessment,
+} from "./cyberTesting";
+import {
   appendCyberEvent,
   logCyberAudit,
   nextReference,
@@ -204,8 +208,34 @@ export const getAssessment = query({
       )
       .take(200);
 
+    // Phase 4A Batch 2A — the testing scope and test-case register travel with
+    // the assessment, so the detail view needs one subscription, not two.
+    const testing = await assessmentTestingDetail(
+      ctx,
+      access.organizationId,
+      assessment,
+    );
+
     return {
       assessment: presentAssessment(assessment, { vulnerabilities, now }),
+      testingScope: {
+        scopeStatus: assessment.scopeStatus ?? "draft",
+        systemsInScope: assessment.systemsInScope ?? null,
+        exclusions: assessment.exclusions ?? null,
+        subtype: assessment.subtype ?? null,
+        leadTesterLabel: assessment.leadTesterLabel ?? null,
+        leadTesterUserId: assessment.leadTesterUserId ?? null,
+        methodology: assessment.methodology ?? null,
+        rulesOfEngagement: assessment.rulesOfEngagement ?? null,
+        authorizationReference: assessment.authorizationReference ?? null,
+        authorizedStartAt: assessment.authorizedStartAt ?? null,
+        authorizedEndAt: assessment.authorizedEndAt ?? null,
+        scopeAuthorizedAt: assessment.scopeAuthorizedAt ?? null,
+        scopeAuthorizedByLabel: assessment.scopeAuthorizedByLabel ?? null,
+      },
+      testCases: testing.testCases,
+      testSummary: testing.summary,
+      outstandingTests: testing.outstanding,
       vulnerabilities: vulnerabilities
         .slice()
         .sort((a, b) => a.discoveredAt - b.discoveredAt)
@@ -546,6 +576,19 @@ export const completeAssessment = mutation({
       args.assessmentId,
     );
     assertAssessmentTransition(assessment.status, "completed", "complete");
+    // Phase 4A Batch 2A — mandatory-test policy. An assessment with planned or
+    // in-progress test cases cannot be completed: the test work must reach a
+    // recorded terminal state (completed / not applicable / cancelled) first.
+    const outstanding = await outstandingTestsForAssessment(
+      ctx,
+      manager.organizationId,
+      assessment._id,
+    );
+    if (outstanding.length > 0) {
+      throw new Error(
+        `Cannot complete: ${outstanding.length} security test case(s) are still planned or in progress`,
+      );
+    }
     const outcomeSummary = requireNarrative(
       args.outcomeSummary,
       "Outcome summary",

@@ -35,6 +35,13 @@ import { effectiveMembershipStatus } from "../lib/membership";
 /** Dedicated compliance-manager fixture identity (tenant M only). */
 export const COMPLIANCE_FIXTURE_EMAIL = "compliance-manager-m@iitams.test";
 /**
+ * Cybersecurity manager fixture identity in tenant A. Batch 2A needs a role
+ * that actually holds `cyber.manage` INSIDE a second organization, so a
+ * cross-tenant write attempt fails on ownership rather than merely on the
+ * permission gate.
+ */
+export const CYBER_MANAGER_A_EMAIL = "cyber-manager-a@iitams.test";
+/**
  * Second tenant-M compliance manager, used to prove that independent review is
  * recorded by a DIFFERENT person from the assessor.
  */
@@ -344,7 +351,78 @@ export const ensureTenantFixtures = internalMutation({
       }
     }
 
-    return { organizations, complianceAdmin, complianceReviewer };
+    // Tenant A additionally carries a CYBERSECURITY MANAGER identity. The risk
+    // fixture identities in A and B stay at the ordinary `user` role; this
+    // identity only exists so the cyber suites can attempt a write across
+    // organizations with a role that genuinely holds cyber.manage.
+    let cyberManagerA: {
+      organizationId: string;
+      organizationCode: string;
+      userId: string;
+      email: string;
+    } | null = null;
+    const tenantA = organizations.find(
+      (o) => o.organizationCode === "IITAMS-TEST-A",
+    );
+    if (tenantA) {
+      const email = CYBER_MANAGER_A_EMAIL;
+      let cyberUser = await ctx.db
+        .query("users")
+        .withIndex("email", (q) => q.eq("email", email))
+        .unique();
+      if (cyberUser && cyberUser.isAnonymous === true) {
+        throw new Error(
+          `Refused: ${email} is an anonymous session, not a fixture identity`,
+        );
+      }
+      if (!cyberUser) {
+        const userId = await ctx.db.insert("users", {
+          name: "IITAMS Test Tenant A cybersecurity manager",
+          email,
+          emailVerificationTime: now,
+          isAnonymous: false,
+        });
+        cyberUser = await ctx.db.get(userId);
+      }
+      if (!cyberUser) throw new Error("Fixture identity could not be created");
+      const cyberProfile = await ctx.db
+        .query("userProfiles")
+        .withIndex("userId", (q) => q.eq("userId", cyberUser!._id))
+        .unique();
+      if (
+        cyberProfile?.organizationId !== undefined &&
+        cyberProfile.organizationId !== (tenantA.organizationId as never)
+      ) {
+        throw new Error(
+          `Refused: ${email} already belongs to another organization (fixtures never migrate memberships)`,
+        );
+      }
+      if (!cyberProfile) {
+        await ctx.db.insert("userProfiles", {
+          userId: cyberUser._id,
+          organizationId: tenantA.organizationId as never,
+          // Admin only inside the disposable, demo-flagged fixture tenant: it
+          // is the minimum registry role that holds cyber.manage.
+          role: "admin",
+          jobTitle: "Cybersecurity fixture manager",
+          membershipStatus: "active",
+          lastSeenAt: now,
+        });
+      }
+      cyberManagerA = {
+        organizationId: tenantA.organizationId,
+        organizationCode: tenantA.organizationCode,
+        userId: String(cyberUser._id),
+        email,
+      };
+    }
+
+    return {
+      organizations,
+      complianceAdmin,
+      complianceReviewer,
+      cyberManagerA,
+    };
   },
 });
 

@@ -50,6 +50,12 @@ import {
   Metric,
   SeverityPill,
 } from "./CyberPrimitives";
+import {
+  TestingScopeSection,
+  TestCaseRegister,
+  type TestSummaryShape,
+  type TestingScope,
+} from "./CyberTestingPanel";
 import { formatDate, formatDateTime } from "@/lib/format";
 import {
   CYBER_ASSESSMENT_STATUSES,
@@ -166,6 +172,9 @@ type EvidenceRow = {
 
 type Detail = {
   assessment: AssessmentRow;
+  testingScope: TestingScope;
+  testSummary: TestSummaryShape;
+  outstandingTests: number;
   vulnerabilities: VulnerabilityRow[];
   events: EventRow[];
   evidence: EvidenceRow[];
@@ -604,6 +613,13 @@ function DetailDialog({
                 />
               </div>
 
+              <TestingScopeSection
+                assessmentId={detail.assessment._id}
+                assessmentStatus={detail.assessment.status}
+                scope={detail.testingScope}
+                canManage={detail.canManage}
+              />
+
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">
@@ -682,6 +698,13 @@ function DetailDialog({
                   </p>
                 </div>
               ) : null}
+
+              <TestCaseRegister
+                assessmentId={detail.assessment._id}
+                vulnerabilities={detail.vulnerabilities}
+                evidence={detail.evidence}
+                canManage={detail.canManage}
+              />
 
               <div>
                 <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold">
@@ -812,10 +835,21 @@ function DetailDialog({
                   </Button>
                 ) : null}
                 {detail.canManage && detail.assessment.status === "in_progress" ? (
-                  <Button onClick={() => setCompleting(true)}>
-                    <ShieldCheck className="mr-2 size-4" aria-hidden />
-                    Complete
-                  </Button>
+                  <div className="flex flex-col items-end gap-1">
+                    <Button
+                      onClick={() => setCompleting(true)}
+                      disabled={detail.outstandingTests > 0}
+                    >
+                      <ShieldCheck className="mr-2 size-4" aria-hidden />
+                      Complete
+                    </Button>
+                    {detail.outstandingTests > 0 ? (
+                      <span className="text-xs text-muted-foreground">
+                        {detail.outstandingTests} test case(s) are still planned
+                        or in progress
+                      </span>
+                    ) : null}
+                  </div>
                 ) : null}
                 {detail.canManage &&
                 (detail.assessment.status === "scheduled" ||
@@ -889,6 +923,11 @@ function CyberAssessmentsInner() {
       }
     | undefined;
 
+  const testing = useQuery(
+    api.cyberTesting.testingSummary,
+    canView ? {} : "skip",
+  ) as { summary: TestSummaryShape } | undefined;
+
   if (session === undefined) {
     return (
       <AppLayout>
@@ -920,12 +959,40 @@ function CyberAssessmentsInner() {
         }
       />
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric label="Assessments" value={summary?.total ?? 0} />
         <Metric label="Planned" value={summary?.planned ?? 0} />
         <Metric label="In progress" value={summary?.inProgress ?? 0} />
         <Metric label="Completed" value={summary?.completed ?? 0} />
       </div>
+
+      <div className="mb-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Metric
+          label="Tests planned"
+          value={testing?.summary.planned ?? 0}
+          hint="Test cases recorded, not executed"
+        />
+        <Metric
+          label="Tests in progress"
+          value={testing?.summary.inProgress ?? 0}
+        />
+        <Metric
+          label="Tests completed"
+          value={testing?.summary.completed ?? 0}
+        />
+        <Metric
+          label="Failed tests"
+          value={testing?.summary.failed ?? 0}
+          tone={
+            testing && testing.summary.failed > 0 ? "text-critical" : undefined
+          }
+          hint="Recorded results, not verified vulnerabilities"
+        />
+      </div>
+      <p className="mb-5 text-xs text-muted-foreground">
+        Testing counts are recorded results only. A pass rate is not a measure
+        of organizational security effectiveness or compliance.
+      </p>
 
       <Card>
         <CardHeader className="gap-3">
