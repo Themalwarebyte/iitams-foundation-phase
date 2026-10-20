@@ -3,6 +3,15 @@ import { defineSchema, defineTable } from "convex/server";
 import { Infer, v } from "convex/values";
 import { PROVISIONABLE_INITIAL_ROLES } from "../lib/membership";
 import {
+  cyberActionStatusValidator,
+  cyberAssessmentStatusValidator,
+  cyberAssessmentTypeValidator,
+  cyberEvidenceClassificationValidator,
+  cyberSeverityValidator,
+  cyberVulnerabilitySourceValidator,
+  cyberVulnerabilityStatusValidator,
+} from "../lib/cyber";
+import {
   accessReviewCycleStatusValidator,
   accessReviewDecisionValidator,
   accessReviewRecommendationValidator,
@@ -1252,49 +1261,193 @@ const schema = defineSchema(
     // ------------------------------------------------------------------
     // CYBERSECURITY ASSURANCE & VULNERABILITY MANAGEMENT
     // ------------------------------------------------------------------
+    // Phase 4A Batch 1 EXTENDS this Phase-1 table rather than creating a
+    // second register: one organization-scoped vulnerability record, with the
+    // Phase-1 fields retained for seeded rows.
     vulnerabilities: defineTable({
       organizationId: v.id("organizations"),
+      // Per-organization identifier (VUL-001…). Optional only because Phase-1
+      // seeded rows predate it; every row created here is given one.
+      reference: v.optional(v.string()),
       cveId: v.optional(v.string()),
       assetName: v.string(),
       title: v.string(),
-      severity: severityValidator,
+      description: v.optional(v.string()),
+      severity: cyberSeverityValidator,
+      // The assessor's real CVSS base score (0–10, ≤1 decimal). Optional and
+      // INDEPENDENT of severity: never derived from it, never fabricated.
       cvssScore: v.optional(v.number()),
-      status: vulnerabilityStatusValidator,
+      cvssVector: v.optional(v.string()),
+      source: v.optional(cyberVulnerabilitySourceValidator),
+      status: cyberVulnerabilityStatusValidator,
       discoveredAt: v.number(),
       remediationDue: v.optional(v.number()),
+      // Linked cybersecurity assessment (re-validated against the org).
+      assessmentId: v.optional(v.id("securityAssessments")),
+      ownerUserId: v.optional(v.id("users")),
+      ownerLabel: v.optional(v.string()),
+      // Free-text remediation note. Never a claim of completion: verification
+      // is recorded on the remediation actions and by verifyVulnerability.
+      remediationNotes: v.optional(v.string()),
+      // Related ICT risk register row. Linking NEVER changes the risk score or
+      // residual risk — that stays with the Risk Assessment workflow.
+      riskId: v.optional(v.id("risks")),
+      remediatedAt: v.optional(v.number()),
+      remediatedByUserId: v.optional(v.id("users")),
+      remediatedByLabel: v.optional(v.string()),
+      verifiedAt: v.optional(v.number()),
+      verifiedByUserId: v.optional(v.id("users")),
+      verifiedByLabel: v.optional(v.string()),
+      verificationNotes: v.optional(v.string()),
+      closedAt: v.optional(v.number()),
+      closureReason: v.optional(v.string()),
+      lastTransitionAt: v.optional(v.number()),
       isDemo: v.optional(v.boolean()),
       ...auditFields,
     })
       .index("by_organization", ["organizationId"])
       .index("by_severity", ["organizationId", "severity"])
-      .index("by_status", ["organizationId", "status"]),
+      .index("by_status", ["organizationId", "status"])
+      .index("by_organization_reference", ["organizationId", "reference"])
+      .index("by_organization_assessment", ["organizationId", "assessmentId"])
+      .index("by_organization_owner", ["organizationId", "ownerUserId"]),
 
+    // Phase 4A Batch 1 EXTENDS the Phase-1 assessment table. Counters are now
+    // OPTIONAL and never written: severity counts are DERIVED from linked
+    // vulnerability rows in queries, so an assessment can never display a
+    // fabricated (or auto-incremented) finding total.
     securityAssessments: defineTable({
       organizationId: v.id("organizations"),
+      // Per-organization identifier (CSA-001…); optional for seeded rows.
+      reference: v.optional(v.string()),
       name: v.string(),
-      type: v.union(
-        v.literal("penetration_test"),
-        v.literal("network_assessment"),
-        v.literal("application_security"),
-        v.literal("configuration_review"),
-        v.literal("red_team"),
-      ),
-      status: v.union(
-        v.literal("scheduled"),
-        v.literal("in_progress"),
-        v.literal("completed"),
-      ),
+      type: cyberAssessmentTypeValidator,
+      status: cyberAssessmentStatusValidator,
+      description: v.optional(v.string()),
+      scope: v.optional(v.string()),
+      objectives: v.optional(v.string()),
+      // Free-text asset/system/service scope. There is no asset register in
+      // this architecture yet, so no foreign key is invented for one.
+      relatedAssetOrService: v.optional(v.string()),
+      ownerUserId: v.optional(v.id("users")),
+      ownerLabel: v.optional(v.string()),
+      plannedStartAt: v.optional(v.number()),
+      plannedEndAt: v.optional(v.number()),
       startedAt: v.optional(v.number()),
+      startedByUserId: v.optional(v.id("users")),
+      startedByLabel: v.optional(v.string()),
       completedAt: v.optional(v.number()),
-      criticalFindings: v.number(),
-      highFindings: v.number(),
-      mediumFindings: v.number(),
-      lowFindings: v.number(),
+      completedByUserId: v.optional(v.id("users")),
+      completedByLabel: v.optional(v.string()),
+      // Required to complete an assessment; the honest record of what the
+      // assessment actually concluded.
+      outcomeSummary: v.optional(v.string()),
+      cancelledAt: v.optional(v.number()),
+      cancelledByUserId: v.optional(v.id("users")),
+      cancelledByLabel: v.optional(v.string()),
+      cancelReason: v.optional(v.string()),
+      // Phase-1 counters: DERIVED in the UI, never stored by this module.
+      criticalFindings: v.optional(v.number()),
+      highFindings: v.optional(v.number()),
+      mediumFindings: v.optional(v.number()),
+      lowFindings: v.optional(v.number()),
+      lastTransitionAt: v.optional(v.number()),
       isDemo: v.optional(v.boolean()),
       ...auditFields,
     })
       .index("by_organization", ["organizationId"])
-      .index("by_type", ["organizationId", "type"]),
+      .index("by_type", ["organizationId", "type"])
+      .index("by_organization_status", ["organizationId", "status"])
+      .index("by_organization_reference", ["organizationId", "reference"])
+      .index("by_organization_owner", ["organizationId", "ownerUserId"]),
+
+    // Explicit remediation actions for a vulnerability. A row saying
+    // "completed" is a CLAIM; only a different authorized verifier may record
+    // verification, and closing requires a verified action.
+    vulnerabilityRemediationActions: defineTable({
+      organizationId: v.id("organizations"),
+      vulnerabilityId: v.id("vulnerabilities"),
+      reference: v.string(),
+      description: v.string(),
+      ownerUserId: v.optional(v.id("users")),
+      ownerLabel: v.string(),
+      dueDate: v.optional(v.number()),
+      mandatory: v.boolean(),
+      status: cyberActionStatusValidator,
+      progressNotes: v.optional(v.string()),
+      evidenceIds: v.array(v.id("cyberEvidence")),
+      startedAt: v.optional(v.number()),
+      completedAt: v.optional(v.number()),
+      completedByUserId: v.optional(v.id("users")),
+      completedByLabel: v.optional(v.string()),
+      completionNotes: v.optional(v.string()),
+      verifiedAt: v.optional(v.number()),
+      verifiedByUserId: v.optional(v.id("users")),
+      verifiedByLabel: v.optional(v.string()),
+      verificationNotes: v.optional(v.string()),
+      cancelledAt: v.optional(v.number()),
+      cancelledByUserId: v.optional(v.id("users")),
+      cancelledByLabel: v.optional(v.string()),
+      cancelReason: v.optional(v.string()),
+      isDemo: v.optional(v.boolean()),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_vulnerability", ["organizationId", "vulnerabilityId"])
+      .index("by_organization_status", ["organizationId", "status"])
+      .index("by_organization_reference", ["organizationId", "reference"])
+      .index("by_organization_due", ["organizationId", "dueDate"]),
+
+    // Append-only history for cybersecurity records: every status change,
+    // failed verification and reopening stays readable forever.
+    vulnerabilityEvents: defineTable({
+      organizationId: v.id("organizations"),
+      vulnerabilityId: v.optional(v.id("vulnerabilities")),
+      assessmentId: v.optional(v.id("securityAssessments")),
+      actionId: v.optional(v.id("vulnerabilityRemediationActions")),
+      type: v.string(),
+      fromStatus: v.optional(v.string()),
+      toStatus: v.optional(v.string()),
+      actorUserId: v.id("users"),
+      actorLabel: v.string(),
+      summary: v.string(),
+      reason: v.optional(v.string()),
+      createdAt: v.number(),
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_vulnerability", ["organizationId", "vulnerabilityId"])
+      .index("by_organization_assessment", ["organizationId", "assessmentId"])
+      .index("by_organization_action", ["organizationId", "actionId"]),
+
+    // Cybersecurity evidence. The audit `evidence` table is engagement-shaped
+    // and the compliance evidence table is control-shaped; neither can hold
+    // vulnerability evidence without corrupting its domain semantics. Storage
+    // and the SERVER-side SHA-256 integrity pattern are reused from
+    // auditEvidence/complianceTesting — no parallel file-store design.
+    cyberEvidence: defineTable({
+      organizationId: v.id("organizations"),
+      vulnerabilityId: v.optional(v.id("vulnerabilities")),
+      assessmentId: v.optional(v.id("securityAssessments")),
+      filename: v.string(),
+      fileType: v.string(),
+      sizeBytes: v.number(),
+      classification: cyberEvidenceClassificationValidator,
+      description: v.optional(v.string()),
+      source: v.optional(v.string()),
+      // Server-computed integrity hash; empty until the hashing action runs.
+      sha256: v.string(),
+      integrity: evidenceIntegrityValidator,
+      integrityCheckedAt: v.optional(v.number()),
+      storageId: v.optional(v.id("_storage")),
+      uploadedById: v.id("users"),
+      uploadedByLabel: v.string(),
+      isDemo: v.optional(v.boolean()),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_vulnerability", ["organizationId", "vulnerabilityId"])
+      .index("by_organization_assessment", ["organizationId", "assessmentId"])
+      .index("by_organization_integrity", ["organizationId", "integrity"]),
 
     // ------------------------------------------------------------------
     // BUSINESS CONTINUITY / DISASTER RECOVERY

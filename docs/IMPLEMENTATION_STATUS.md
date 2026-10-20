@@ -148,6 +148,28 @@ was tidied. The 2 skips are the pre-existing conditional
 skip themselves when the shared dev deployment already holds that fixture —
 they are reported as skipped, not as passing.
 
+## Phase 4A — Cybersecurity Assurance Batch 1 *(implemented, uncommitted for review)*
+
+See [`CYBERSECURITY_ASSURANCE.md`](CYBERSECURITY_ASSURANCE.md) for the full design notes.
+
+| Workstream | Status | Evidence |
+| --- | --- | --- |
+| Cybersecurity assessment register (reference, title, type, scope, asset/service, owner, planned/actual dates, status, objectives, outcome) | ✅ | `src/convex/cyberAssessments.ts`, `/cyber/assessments` |
+| Explicit assessment lifecycle (planned → in progress → completed · cancelled); completion requires an outcome summary and is never inferred from findings | ✅ | `canTransitionAssessment`, `completeAssessment` |
+| Vulnerability register extending the Phase-1 table (reference, description, asset, discovery method, severity, CVSS, dates, owner, lifecycle, assessment link, evidence, remediation notes) | ✅ | `src/convex/cyberVulnerabilities.ts`, `/cyber/vulnerabilities` |
+| Severity and CVSS validated independently; no invented scores, no severity→score inference; vector shape validated | ✅ | `src/lib/cyber.ts` (`validateCvssScore`, `validateCvssVector`) |
+| Explicit remediation actions; completion is a claim and independent verification is required | ✅ | `src/convex/cyberActions.ts` |
+| Separation of duties: the implementer can never verify their own vulnerability or action | ✅ | `verifyVulnerability`, `verifyRemediationAction` |
+| Closure gates: verified / risk-accepted / false-positive record with no unresolved actions | ✅ | `closeVulnerability` |
+| Append-only history; reopening clears stale stamps while history stays readable | ✅ | `vulnerabilityEvents`, `reopenVulnerability` |
+| ICT risk linkage is traceability only — no second risk model, no risk row patched | ✅ | `linkVulnerabilityRisk`, `tests/cyberAssurance.test.ts` |
+| Cybersecurity evidence with server-side SHA-256, classification gate and audited downloads | ✅ | `src/convex/cyberEvidence.ts` |
+| Authorization: `cyber.view` / `cyber.manage` + active membership, server-derived organization, cross-tenant denial, per-write audit entries | ✅ | `src/convex/cyberCore.ts` |
+| Frontend: registers with search/filters, detail, lifecycle controls, action tracking, evidence upload, history, loading/empty/unauthorized states | ✅ | `src/components/iitams/cyber/*` |
+| Tests (structural + runtime + cross-tenant + read-only role + Chromium journey) | ✅ | `tests/cyber.security.test.ts` (18), `tests/cyberAssurance.test.ts` (5), `tests/browser.cyber-assurance.test.ts` (1) |
+
+Not in this batch (by design): penetration-test / network / application-security / configuration-review workflows, scanner integrations, CVSS computation, security scoring, and Business Continuity work.
+
 ## Phase 3 — Recommended next (not started)
 
 1. **User provisioning UI** — admin invites, role assignment, disable

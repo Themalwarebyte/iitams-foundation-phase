@@ -124,6 +124,12 @@ const ComplianceAssessmentsPage = lazy(
 const ComplianceFindingsPage = lazy(
   () => import("./components/iitams/compliance/ComplianceFindingsPage"),
 );
+const CyberAssessmentsPage = lazy(
+  () => import("./components/iitams/cyber/CyberAssessmentsPage"),
+);
+const CyberVulnerabilitiesPage = lazy(
+  () => import("./components/iitams/cyber/CyberVulnerabilitiesPage"),
+);
 const AdminAccessReviewsPage = lazy(() =>
   import("./components/iitams/admin/AdminAccessReviewsPage").then((m) => ({
     default: m.AdminAccessReviewsPage,
@@ -223,9 +229,8 @@ const MODULE_ROUTES = [
   "/compliance/control-testing",
   "/compliance/evidence-mapping",
   "/compliance/dashboard",
-  // Cybersecurity Assurance
-  "/cyber/assessments",
-  "/cyber/vulnerabilities",
+  // Cybersecurity Assurance (assessments and vulnerabilities have dedicated
+  // Phase-4A routes below)
   "/cyber/penetration-tests",
   "/cyber/network-assessments",
   "/cyber/application-security",
@@ -371,6 +376,29 @@ createRoot(document.getElementById("root")!).render(
                     description="Compliance findings and remediation tracking are available to authorized users of your organization."
                   >
                     <ComplianceFindingsPage />
+                  </RequireAuth>
+                }
+              />
+              {/* Phase 4A Batch 1 — Cybersecurity Assurance */}
+              <Route
+                path="/cyber/assessments"
+                element={
+                  <RequireAuth
+                    title="Sign in to open cybersecurity assessments"
+                    description="Cybersecurity assessments are available to authorized users of your organization."
+                  >
+                    <CyberAssessmentsPage />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/cyber/vulnerabilities"
+                element={
+                  <RequireAuth
+                    title="Sign in to open the vulnerability register"
+                    description="Vulnerabilities and remediation are available to authorized users of your organization."
+                  >
+                    <CyberVulnerabilitiesPage />
                   </RequireAuth>
                 }
               />

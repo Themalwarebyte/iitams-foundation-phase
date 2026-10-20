@@ -3,6 +3,46 @@
 How the project owner gets a real, self-owned administrator account on a
 **preview/demo** deployment. Nothing here is used on production data.
 
+## 0. Backend reachability — do this first (verified 2026-10-19)
+
+A preview that "loads but cannot sign in / shows nothing" is usually this: the
+web client was built with a **loopback** Convex URL, so every browser except the
+ones running inside the sandbox tries to reach its *own* `127.0.0.1:3210` and
+fails. The client only reads one variable for this —
+`new ConvexReactClient(import.meta.env.VITE_CONVEX_URL)` in `src/main.tsx`.
+
+For an externally reachable preview, point the client at the workspace's
+**public port-forward** URLs instead:
+
+```bash
+# values are public configuration, not secrets
+VITE_CONVEX_URL=https://<cloud-port>-<workspace-id>.e2b.app
+VITE_CONVEX_SITE_URL=https://<site-port>-<workspace-id>.e2b.app
+```
+
+Verify with evidence before claiming it works:
+
+```bash
+# 1. The served client really carries the public URL (not 127.0.0.1)
+curl -s https://<preview-host>/src/main.tsx | grep -oE 'https?://[^"'"'"']+' | sort -u
+# 2. The backend answers from *outside* the sandbox
+curl -s -o /dev/null -w '%{http_code}\n' https://<cloud-port>-<workspace-id>.e2b.app/version
+# 3. The realtime channel upgrades (Convex needs WebSockets, not just HTTP)
+node -e 'const W=require("ws");const w=new W("wss://<cloud-port>-<workspace-id>.e2b.app/api/1.30.0/sync");w.on("open",()=>{console.log("upgrade ok");process.exit(0)});w.on("error",e=>{console.log("ERR",e.message);process.exit(1)})'
+# 4. End-to-end through the app itself: the guest sign-in + dashboard smoke suite
+bun test tests/browser.smoke.test.ts
+```
+
+**Residual risk you must accept knowingly.** Port forwarding makes the whole
+development backend reachable from the internet (ports 3210 and 3211 answer an
+unauthenticated `GET /version`), and a development deployment has guest sign-in
+enabled by design. Keep such a preview short-lived, keep only demo/seed data on
+it, never copy production data or credentials onto it, and prefer a dedicated
+Convex **cloud development** deployment (deployment-scoped `CONVEX_DEPLOY_KEY`,
+`npx convex deploy`) when the preview must stay reachable for more than a
+session. Tester-token-gated harness routes (`/api/dev-*`) are the only dev
+surface that should ever be reachable, and they refuse without the token.
+
 ## 1. Email OTP delivery (prerequisite)
 
 IITAMS signs users in with an email one-time code; there are no passwords.
@@ -32,6 +72,12 @@ Notes:
 
 **Provider acceptance is not inbox receipt.** Confirm the owner actually
 receives a code before treating email sign-in as working.
+
+**Interaction with the browser test suites:** the development OTP capture (the
+bridge the suites read a code from) only runs in the *no-provider* branch. With
+`IITAMS_EMAIL_PROVIDER=resend` active, codes are delivered by email instead and
+the capture is inactive — so enable the provider for the owner's sign-in, and
+expect the OTP-dependent suites to need it unset again (or a real inbox).
 
 ## 2. Owner account creation (identity proof)
 

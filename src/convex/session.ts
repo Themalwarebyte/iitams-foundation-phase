@@ -91,6 +91,9 @@ export const getSession = query({
       // compliance.manage itself; this only mirrors what the UI may offer).
       complianceManage: roleHasPermission(access.role, "compliance.manage"),
       cyber: roleHasPermission(access.role, "cyber.view"),
+      // Phase 4A — cybersecurity write surfaces (the server checks
+      // cyber.manage itself; this only mirrors what the UI may offer).
+      cyberManage: roleHasPermission(access.role, "cyber.manage"),
       bcm: roleHasPermission(access.role, "bcm.view"),
       reports: roleHasPermission(access.role, "reports.view"),
       admin: roleHasPermission(access.role, "admin.view"),
