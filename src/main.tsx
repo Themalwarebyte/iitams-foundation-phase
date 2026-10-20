@@ -127,6 +127,9 @@ const ComplianceFindingsPage = lazy(
 const CyberAssessmentsPage = lazy(
   () => import("./components/iitams/cyber/CyberAssessmentsPage"),
 );
+const CyberReportsPage = lazy(
+  () => import("./components/iitams/cyber/CyberReportsPage"),
+);
 const CyberVulnerabilitiesPage = lazy(
   () => import("./components/iitams/cyber/CyberVulnerabilitiesPage"),
 );
@@ -247,7 +250,6 @@ const MODULE_ROUTES = [
   "/reports/audit",
   "/reports/risk",
   "/reports/compliance",
-  "/reports/cybersecurity",
   "/reports/bcm",
   // Administration (Phase-3A scaffold routes remaining; dashboard,
   // organizations, users, roles and audit-logs have dedicated routes below)
@@ -399,6 +401,18 @@ createRoot(document.getElementById("root")!).render(
                     description="Vulnerabilities and remediation are available to authorized users of your organization."
                   >
                     <CyberVulnerabilitiesPage />
+                  </RequireAuth>
+                }
+              />
+              {/* Phase 4A Batch 3 — Cybersecurity reporting hub */}
+              <Route
+                path="/reports/cybersecurity"
+                element={
+                  <RequireAuth
+                    title="Sign in to open cybersecurity reports"
+                    description="Security testing assurance reports are available to authorized users of your organization."
+                  >
+                    <CyberReportsPage path="/reports/cybersecurity" />
                   </RequireAuth>
                 }
               />

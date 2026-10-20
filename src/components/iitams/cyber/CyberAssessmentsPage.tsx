@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -56,6 +57,7 @@ import {
   type TestSummaryShape,
   type TestingScope,
 } from "./CyberTestingPanel";
+import { AssuranceReportSection } from "./CyberRetestPanel";
 import { formatDate, formatDateTime } from "@/lib/format";
 import {
   CYBER_ASSESSMENT_STATUSES,
@@ -706,6 +708,11 @@ function DetailDialog({
                 canManage={detail.canManage}
               />
 
+              <AssuranceReportSection
+                assessmentId={detail.assessment._id}
+                canManage={detail.canManage}
+              />
+
               <div>
                 <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold">
                   <ShieldCheck className="size-4" aria-hidden />
@@ -894,8 +901,15 @@ function CyberAssessmentsInner() {
   const [type, setType] = useState<string>("all");
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<AssessmentRow | null>(null);
+  // Deep link from the cybersecurity reporting hub: `?assessment=<id>` opens
+  // that assessment's detail. A malformed value is ignored rather than sent to
+  // the backend as an invalid id.
+  const [searchParams] = useSearchParams();
+  const linkedAssessment = searchParams.get("assessment");
   const [detailId, setDetailId] = useState<Id<"securityAssessments"> | null>(
-    null,
+    linkedAssessment && /^[a-z0-9]{16,64}$/i.test(linkedAssessment)
+      ? (linkedAssessment as Id<"securityAssessments">)
+      : null,
   );
 
   const data = useQuery(

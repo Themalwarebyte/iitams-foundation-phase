@@ -7,6 +7,10 @@ import {
   cyberAssessmentStatusValidator,
   cyberAssessmentTypeValidator,
   cyberEvidenceClassificationValidator,
+  cyberReportReviewDecisionValidator,
+  cyberReportStatusValidator,
+  cyberRetestReviewDecisionValidator,
+  cyberRetestStatusValidator,
   cyberScopeStatusValidator,
   cyberSeverityValidator,
   cyberTestCategoryValidator,
@@ -1436,6 +1440,106 @@ const schema = defineSchema(
       .index("by_organization_tester", ["organizationId", "testerUserId"])
       .index("by_organization_vulnerability", ["organizationId", "vulnerabilityId"]),
 
+    // Phase 4A Batch 2B — security retests. A retest is a NEW record against a
+    // previously recorded failed/inconclusive test; the original completed
+    // result is never rewritten. A passing retest closes nothing by itself:
+    // independent review decides, and the vulnerability keeps its own
+    // Batch-1 lifecycle.
+    cyberRetests: defineTable({
+      organizationId: v.id("organizations"),
+      assessmentId: v.id("securityAssessments"),
+      originalTestCaseId: v.id("cyberTestCases"),
+      vulnerabilityId: v.optional(v.id("vulnerabilities")),
+      reference: v.string(),
+      reason: v.string(),
+      scope: v.string(),
+      systemUnderTest: v.string(),
+      procedure: v.string(),
+      testerUserId: v.optional(v.id("users")),
+      testerLabel: v.string(),
+      plannedDate: v.optional(v.number()),
+      actualDate: v.optional(v.number()),
+      status: cyberRetestStatusValidator,
+      outcome: cyberTestOutcomeValidator,
+      observations: v.optional(v.string()),
+      evidenceIds: v.array(v.id("cyberEvidence")),
+      startedAt: v.optional(v.number()),
+      startedByUserId: v.optional(v.id("users")),
+      startedByLabel: v.optional(v.string()),
+      completedAt: v.optional(v.number()),
+      completedByUserId: v.optional(v.id("users")),
+      completedByLabel: v.optional(v.string()),
+      reviewedAt: v.optional(v.number()),
+      reviewedByUserId: v.optional(v.id("users")),
+      reviewedByLabel: v.optional(v.string()),
+      reviewDecision: v.optional(cyberRetestReviewDecisionValidator),
+      reviewNotes: v.optional(v.string()),
+      lastTransitionAt: v.optional(v.number()),
+      isDemo: v.optional(v.boolean()),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_created", ["organizationId", "createdAt"])
+      .index("by_organization_assessment", ["organizationId", "assessmentId"])
+      .index("by_organization_original", [
+        "organizationId",
+        "originalTestCaseId",
+      ])
+      .index("by_organization_status", ["organizationId", "status"])
+      .index("by_organization_vulnerability", [
+        "organizationId",
+        "vulnerabilityId",
+      ]),
+
+    // Phase 4A Batch 2B — security assurance reports. A report is an
+    // organization-scoped snapshot of recorded testing evidence. `snapshot` is
+    // written once, at finalization, and never patched: a later revision is a
+    // new versioned row so an approved report cannot change underneath its
+    // readers.
+    cyberTestReports: defineTable({
+      organizationId: v.id("organizations"),
+      assessmentId: v.id("securityAssessments"),
+      reference: v.string(),
+      title: v.string(),
+      status: cyberReportStatusValidator,
+      version: v.number(),
+      revisionOf: v.optional(v.id("cyberTestReports")),
+      supersededByReportId: v.optional(v.id("cyberTestReports")),
+      // Authored narrative — the parts a human must write, never generated.
+      conclusions: v.string(),
+      recommendations: v.string(),
+      limitations: v.string(),
+      untestedScope: v.string(),
+      preparedByUserId: v.id("users"),
+      preparedByLabel: v.string(),
+      preparedAt: v.number(),
+      submittedAt: v.optional(v.number()),
+      submittedByUserId: v.optional(v.id("users")),
+      submittedByLabel: v.optional(v.string()),
+      // Independent review (Batch 2B Stage 2). The reviewer must be a different
+      // active member; the approved snapshot is what finalization freezes.
+      reviewedByUserId: v.optional(v.id("users")),
+      reviewedByLabel: v.optional(v.string()),
+      reviewedAt: v.optional(v.number()),
+      reviewDecision: v.optional(cyberReportReviewDecisionValidator),
+      reviewedSnapshot: v.optional(v.any()),
+      reviewNotes: v.optional(v.string()),
+      finalizedAt: v.optional(v.number()),
+      finalizedByUserId: v.optional(v.id("users")),
+      finalizedByLabel: v.optional(v.string()),
+      // Frozen content of a finalized report. v.any() on purpose: the shape is
+      // validated by buildAssuranceReportContent, and stored reports must stay
+      // readable even when the aggregation gains fields later.
+      snapshot: v.optional(v.any()),
+      isDemo: v.optional(v.boolean()),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_created", ["organizationId", "createdAt"])
+      .index("by_organization_assessment", ["organizationId", "assessmentId"])
+      .index("by_organization_status", ["organizationId", "status"])
+      .index("by_organization_reference", ["organizationId", "reference"]),
+
     // Explicit remediation actions for a vulnerability. A row saying
     // "completed" is a CLAIM; only a different authorized verifier may record
     // verification, and closing requires a verified action.
@@ -1482,6 +1586,8 @@ const schema = defineSchema(
       actionId: v.optional(v.id("vulnerabilityRemediationActions")),
       // Phase 4A Batch 2A — test-case history reuses this append-only table.
       testCaseId: v.optional(v.id("cyberTestCases")),
+      // Phase 4A Batch 2B — retest history reuses the same append-only table.
+      retestId: v.optional(v.id("cyberRetests")),
       type: v.string(),
       fromStatus: v.optional(v.string()),
       toStatus: v.optional(v.string()),
@@ -1495,7 +1601,8 @@ const schema = defineSchema(
       .index("by_organization_vulnerability", ["organizationId", "vulnerabilityId"])
       .index("by_organization_assessment", ["organizationId", "assessmentId"])
       .index("by_organization_action", ["organizationId", "actionId"])
-      .index("by_organization_test", ["organizationId", "testCaseId"]),
+      .index("by_organization_test", ["organizationId", "testCaseId"])
+      .index("by_organization_retest", ["organizationId", "retestId"]),
 
     // Cybersecurity evidence. The audit `evidence` table is engagement-shaped
     // and the compliance evidence table is control-shaped; neither can hold

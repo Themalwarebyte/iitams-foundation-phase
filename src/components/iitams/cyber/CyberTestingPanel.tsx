@@ -37,6 +37,7 @@ import {
   TestOutcomePill,
   TestStatusPill,
 } from "./CyberPrimitives";
+import { RetestSection } from "./CyberRetestPanel";
 import { formatDate, formatDateTime } from "@/lib/format";
 import {
   CYBER_NARRATIVE_MIN,
@@ -1272,6 +1273,11 @@ function TestCaseDetailDialog({
                   )}
                 </ol>
               </div>
+
+              <RetestSection
+                testCaseId={testCaseId}
+                evidence={detail.evidence}
+              />
 
               <DialogFooter className="flex-wrap gap-2">
                 {canManage && row.status === "planned" ? (

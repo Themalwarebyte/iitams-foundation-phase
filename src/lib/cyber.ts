@@ -734,4 +734,217 @@ export const CYBER_EVENT_TYPES = [
   "test_not_applicable",
   "test_cancelled",
   "test_reviewed",
+  // Batch 2B — security retesting, independent verification, assurance reporting
+  "retest_created",
+  "retest_started",
+  "retest_completed",
+  "retest_reviewed",
+  "retest_rejected",
+  "report_created",
+  "report_updated",
+  "report_submitted",
+  "report_finalized",
+  "report_revised",
 ] as const;
+
+// ---------------------------------------------------------------------------
+// Security retests (Phase 4A — Batch 2B)
+// ---------------------------------------------------------------------------
+
+/**
+ * A retest is a NEW record against a previously recorded failed or
+ * inconclusive test. It never rewrites the original result: the original stays
+ * `completed` with its historical outcome, and the retest carries its own
+ * evidence, tester, reviewer and history.
+ */
+export const CYBER_RETEST_STATUSES = [
+  "planned",
+  "in_progress",
+  "completed",
+  "reviewed",
+  "rejected",
+] as const;
+export type CyberRetestStatus = (typeof CYBER_RETEST_STATUSES)[number];
+
+export const cyberRetestStatusValidator = v.union(
+  ...CYBER_RETEST_STATUSES.map((s) => v.literal(s)),
+);
+
+export const CYBER_RETEST_STATUS_LABELS: Record<CyberRetestStatus, string> = {
+  planned: "Retest planned",
+  in_progress: "Retest in progress",
+  completed: "Awaiting independent review",
+  reviewed: "Independently reviewed",
+  rejected: "Rejected — further remediation required",
+};
+
+export const CYBER_RETEST_TRANSITIONS: Record<
+  CyberRetestStatus,
+  CyberRetestStatus[]
+> = {
+  planned: ["in_progress"],
+  in_progress: ["completed"],
+  completed: ["reviewed", "rejected"],
+  reviewed: [],
+  rejected: [],
+};
+
+export function canTransitionRetest(
+  from: CyberRetestStatus,
+  to: CyberRetestStatus,
+): boolean {
+  return CYBER_RETEST_TRANSITIONS[from]?.includes(to) ?? false;
+}
+
+/** The reviewer's decision on a completed retest. */
+export const CYBER_RETEST_REVIEW_DECISIONS = ["approved", "rejected"] as const;
+export type CyberRetestReviewDecision =
+  (typeof CYBER_RETEST_REVIEW_DECISIONS)[number];
+
+export const cyberRetestReviewDecisionValidator = v.union(
+  ...CYBER_RETEST_REVIEW_DECISIONS.map((d) => v.literal(d)),
+);
+
+export const CYBER_RETEST_REVIEW_DECISION_LABELS: Record<
+  CyberRetestReviewDecision,
+  string
+> = {
+  approved: "Approved",
+  rejected: "Rejected — remediation incomplete",
+};
+
+/** Only a recorded failure or inconclusive result may be retested. */
+export function isRetestEligible(
+  status: CyberTestStatus,
+  outcome: CyberTestOutcome,
+): boolean {
+  return (
+    status === "completed" && (outcome === "fail" || outcome === "inconclusive")
+  );
+}
+
+export type RetestExecution = { allowed: boolean; reason: string | null };
+
+/**
+ * Retest execution gate. A retest may run after its assessment has completed
+ * (remediation happens later), so "in progress" is not required — but the
+ * written authorization, its window and the specific target still are. A
+ * cancelled assessment or a draft/expired authorization refuses execution.
+ */
+export function retestExecutionStatus(input: {
+  assessmentStatus: CyberAssessmentStatus;
+  scopeStatus: CyberScopeStatus | undefined;
+  systemsInScope: string | undefined;
+  exclusions: string | undefined;
+  authorizedStartAt: number | undefined;
+  authorizedEndAt: number | undefined;
+  target: string;
+  now: number;
+}): RetestExecution {
+  if (input.assessmentStatus === "cancelled") {
+    return {
+      allowed: false,
+      reason: "A retest cannot run against a cancelled assessment",
+    };
+  }
+  if (input.scopeStatus !== "authorized") {
+    return {
+      allowed: false,
+      reason:
+        "A retest requires an authorized testing scope; record a new authorization decision first",
+    };
+  }
+  if (
+    !isWithinTestingWindow(
+      input.authorizedStartAt,
+      input.authorizedEndAt,
+      input.now,
+    )
+  ) {
+    return {
+      allowed: false,
+      reason:
+        "Retest execution is refused: today is outside the authorized testing window. A new documented authorization is required",
+    };
+  }
+  if (isTargetExcluded(input.exclusions, input.target)) {
+    return {
+      allowed: false,
+      reason: `Retest execution is refused: “${input.target}” is named in the explicit exclusions of this authorization`,
+    };
+  }
+  if (!isTargetInAuthorizedScope(input.systemsInScope, input.target)) {
+    return {
+      allowed: false,
+      reason: `Retest execution is refused: “${input.target}” is not listed in the authorized testing scope`,
+    };
+  }
+  return { allowed: true, reason: null };
+}
+
+// ---------------------------------------------------------------------------
+// Security assurance reports (Phase 4A — Batch 2B)
+// ---------------------------------------------------------------------------
+
+/**
+ * A report is a snapshot of recorded evidence, not a security score. A
+ * finalized report keeps the exact content it was finalized with; later
+ * remediation never rewrites it, and a revision is a new draft version.
+ */
+export const CYBER_REPORT_STATUSES = [
+  "draft",
+  "in_review",
+  "reviewed",
+  "finalized",
+  "superseded",
+] as const;
+export type CyberReportStatus = (typeof CYBER_REPORT_STATUSES)[number];
+
+export const cyberReportStatusValidator = v.union(
+  ...CYBER_REPORT_STATUSES.map((s) => v.literal(s)),
+);
+
+export const CYBER_REPORT_STATUS_LABELS: Record<CyberReportStatus, string> = {
+  draft: "Draft",
+  in_review: "Awaiting independent review",
+  reviewed: "Independently approved",
+  finalized: "Finalized",
+  superseded: "Superseded by a later revision",
+};
+
+/** The independent reviewer's decision on a submitted report. */
+export const CYBER_REPORT_REVIEW_DECISIONS = ["approved", "rejected"] as const;
+export type CyberReportReviewDecision =
+  (typeof CYBER_REPORT_REVIEW_DECISIONS)[number];
+
+export const cyberReportReviewDecisionValidator = v.union(
+  ...CYBER_REPORT_REVIEW_DECISIONS.map((d) => v.literal(d)),
+);
+
+export const CYBER_REPORT_REVIEW_DECISION_LABELS: Record<
+  CyberReportReviewDecision,
+  string
+> = {
+  approved: "Approved",
+  rejected: "Rejected",
+};
+
+export const CYBER_REPORT_TRANSITIONS: Record<
+  CyberReportStatus,
+  CyberReportStatus[]
+> = {
+  draft: ["in_review"],
+  in_review: ["reviewed", "draft"],
+  // Approval never finalizes: an approved report is finalized separately, and
+  // can only be invalidated (back to draft) or finalised with its frozen copy.
+  reviewed: ["finalized", "draft"],
+  finalized: ["superseded"],
+  superseded: [],
+};
+
+export function canTransitionReport(
+  from: CyberReportStatus,
+  to: CyberReportStatus,
+): boolean {
+  return CYBER_REPORT_TRANSITIONS[from]?.includes(to) ?? false;
+}

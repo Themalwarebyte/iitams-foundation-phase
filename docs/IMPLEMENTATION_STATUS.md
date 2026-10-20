@@ -170,7 +170,7 @@ See [`CYBERSECURITY_ASSURANCE.md`](CYBERSECURITY_ASSURANCE.md) for the full desi
 
 Not in this batch (by design): scanner integrations, CVSS computation, security scoring, and Business Continuity work. The testing workflow is Batch 2A below.
 
-## Phase 4A — Cybersecurity Assurance Batch 2A *(implemented, uncommitted for review)*
+## Phase 4A — Cybersecurity Assurance Batch 2A *(committed `4d00f22`)*
 
 Security testing engagements and test cases, extending the same assessment
 register. Full design notes in [`CYBERSECURITY_ASSURANCE.md`](CYBERSECURITY_ASSURANCE.md).
@@ -187,9 +187,59 @@ register. Full design notes in [`CYBERSECURITY_ASSURANCE.md`](CYBERSECURITY_ASSU
 | Assessment completion blocked while tests are planned/in progress | ✅ | `completeAssessment` + `outstandingTestsForAssessment` |
 | Truthful roll-ups (planned, in progress, completed, pass, fail, inconclusive, untested, linked vulnerabilities) with no effectiveness claim | ✅ | `summarizeTestCases`, `testingSummary` |
 | Frontend: scope/authorization section, test-case register, creation, execution, outcome, evidence, links, history, search/filters, read-only | ✅ | `src/components/iitams/cyber/CyberTestingPanel.tsx` |
-| Tests (structural + runtime + cross-tenant + read-only + pagination + Chromium journey) | ✅ | `tests/cyberTesting.test.ts` (21), `tests/browser.cyber-testing.test.ts` (1) |
+| Execution gate: authorized scope + live testing window + in-scope, non-excluded target; shared with the UI reason text | ✅ | `testingExecutionStatus`, `startTestCase` |
+| Tests (structural + runtime + cross-tenant + read-only + pagination + Chromium journey) | ✅ | `tests/cyberTesting.test.ts` (23), `tests/browser.cyber-testing.test.ts` (1) |
 
 Not in Batch 2A (by design): automated penetration-testing/scanner integrations, exploit execution, security scoring, and Business Continuity work.
+
+## Phase 4A — Cybersecurity Assurance Batch 2B *(committed with Batch 3)*
+
+Security retesting, independent verification and assurance reporting on top of
+Batch 2A. Full design notes in [`CYBERSECURITY_ASSURANCE.md`](CYBERSECURITY_ASSURANCE.md).
+
+| Workstream | Status | Evidence |
+| --- | --- | --- |
+| Retests (`RT-001…`) against a recorded failed/inconclusive test with reason, scope, target, tester, dates, procedure, observations, evidence, reviewer and decision | ✅ | `src/convex/cyberRetesting.ts`, `cyberRetests` |
+| Original result never rewritten; only fail/inconclusive is eligible; retest history is append-only (`vulnerabilityEvents.retestId`) | ✅ | `createRetest`, `getRetest` |
+| Authorization-gated retest execution (scope, window, exclusions, in-scope target, cancelled assessment) | ✅ | `retestExecutionStatus`, `startRetest` |
+| Independent review that refuses tester and executor; approved/rejected final; rejected requires a new retest | ✅ | `reviewRetest` |
+| Remediation traceability chain with explicit “failure without vulnerability” distinction | ✅ | `testTrace` |
+| Assurance reports (`STR-001…`): draft → in review → finalized → superseded, frozen snapshot, revisions as new versions | ✅ | `src/convex/cyberReports.ts`, `src/lib/cyberReport.ts` |
+| Report content: counts, retests, confirmed vulnerabilities, severity distribution, outstanding remediation, verification/closure, accessible evidence, limitations | ✅ | `buildAssuranceReportContent` |
+| A recorded or reviewed retest pass closes no vulnerability and changes no ICT risk score | ✅ | `completeRetest`, `reviewRetest`, runtime tests |
+| Frontend: retest section in the test detail (plan, start, result, review), traceable status, assessment report section (create, submit, finalize, revise) | ✅ | `src/components/iitams/cyber/CyberRetestPanel.tsx` |
+| Tests (structural + runtime + cross-tenant + read-only + foreign-tester + concurrency + snapshot immutability + Chromium journey) | ✅ | `tests/cyberRetesting.test.ts` (21), `tests/browser.cyber-retesting.test.ts` (1) |
+
+Verified on the final state: `tsc` exit 0, `lint` exit 0 (21 pre-existing
+warnings), `build` exit 0, units **403 (401 pass, 2 skip, 0 fail)**, browser
+**34 (34 pass, 0 fail)**.
+
+Not in Batch 2B (by design): scanners/offensive tooling, security scoring and
+Business Continuity. Report export and the discovery hub are Batch 3.
+
+## Phase 4A — Cybersecurity Assurance Batch 3 *(committed with Batch 2B)*
+
+Cybersecurity reporting hub, versioned exports and security posture summaries.
+Full design notes in [`CYBERSECURITY_ASSURANCE.md`](CYBERSECURITY_ASSURANCE.md).
+
+| Workstream | Status | Evidence |
+| --- | --- | --- |
+| `/reports/cybersecurity` discovery hub replacing the placeholder: search, assessment/status/date filters, lifecycle counts, preparer and reviewer attribution, version/supersession links, keyset pagination | ✅ | `reportHub`, `src/components/iitams/cyber/CyberReportsPage.tsx` |
+| Dedicated report detail: scope, methodology, counts, confirmed vulnerabilities, severity distribution, remediation, verification, evidence (accessible vs withheld), reviewer decision and version history | ✅ | `getReport`, `ReportDetailPanel` |
+| Finalized content read from the frozen snapshot; drafts and in-review reports labelled as live/unapproved | ✅ | `getReport` snapshot branch, detail banners, runtime tests |
+| PDF (print) and Word export of the authorized, redacted report; version and state in the filename; drafts carry a DRAFT banner; superseded versions remain exportable | ✅ | `src/lib/cyberReportExport.ts` |
+| Organization-scoped posture summary of recorded counts only — no composite score, explicit truncation flags | ✅ | `postureSummary` |
+| Separation of duties: preparer cannot review or finalize; approval fingerprint invalidates on data change; finalized snapshots immutable | ✅ | `reviewReport`, `finalizeReport`, `tests/cyberReports.test.ts` |
+| Authorization `cyber.view` / `cyber.manage` + active membership, server-derived organization, cross-tenant refusal, bounded indexed reads, append-only event and audit entries | ✅ | `resolveCyberAccess`, `appendCyberEvent`, `logCyberAudit` |
+| Tests (unit + cross-tenant + redaction + Chromium journey) | ✅ | `tests/cyberReports.test.ts` (13), `tests/browser.cyber-reports.test.ts` (1) |
+
+Verified on the final state: `tsc` exit 0, `lint` exit 0 (21 pre-existing
+warnings), `build` exit 0, units **418 (416 pass, 2 skip, 0 fail)**, browser
+**35 (35 pass, 0 fail, 0 blocked)**. Truncated aggregations are disclosed in
+the report and its exports as lower bounds, never as exact totals.
+
+Not in Batch 3 (by design): a server-rendered PDF binary, scheduled delivery,
+security scoring, scanners and Business Continuity.
 
 ## Phase 3 — Recommended next (not started)
 

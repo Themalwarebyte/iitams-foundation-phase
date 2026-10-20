@@ -43,6 +43,32 @@ Convex **cloud development** deployment (deployment-scoped `CONVEX_DEPLOY_KEY`,
 session. Tester-token-gated harness routes (`/api/dev-*`) are the only dev
 surface that should ever be reachable, and they refuse without the token.
 
+## Current readiness (verified 2026-10-20)
+
+| Requirement | State | Evidence |
+| --- | --- | --- |
+| Preview reachable | ✅ | `https://5173-<workspace>.e2b.app` → 200 |
+| Backend reachable from outside the sandbox | ✅ | Convex cloud port `/version` → 200 (public fork — residual risk below) |
+| Dev harness routes refuse without the tester token | ✅ | `POST /api/dev-otp`, `/api/dev-seed-test-user`, `/api/dev-grant-demo-role` all → **403** `{"error":"unauthorized"}` |
+| Email OTP delivery | ❌ not configured | deployment has no `IITAMS_EMAIL_PROVIDER` and no `RESEND_API_KEY`; the backend logs `[iitams:otp] no email provider configured` and no message is sent |
+| Isolated cloud development deployment | ❌ not provisioned | `CONVEX_DEPLOYMENT` targets the sandbox's local backend; no Convex account credential is authorised here (`npx convex dev` cannot mint a cloud dev deployment without interactive login) |
+| Owner login email | ❌ not supplied | the owner has not yet provided a confirmed address, so no account can be created or verified |
+
+**Owner actions required (in order):**
+
+1. Provide the exact email address to use, and confirm you can receive mail at it.
+2. Supply a Resend API key and verified sender (Settings → Environment on the
+   preview deployment: `IITAMS_EMAIL_PROVIDER=resend`, `RESEND_API_KEY`,
+   `RESEND_FROM`, plus `SITE_URL` = the preview origin). Never paste the key in
+   chat or commit it.
+3. Confirm an isolated Convex **cloud development** deployment is authorised
+   (dashboard login + `CONVEX_DEPLOY_KEY`) if the owner account must outlive a
+   sandbox session. Until then the owner should treat the forwarded preview as
+   disposable and not enter real operational data.
+
+Nothing below changes: the procedure stays double-gated and audited, and it is
+deliberately not enabled on this deployment.
+
 ## 1. Email OTP delivery (prerequisite)
 
 IITAMS signs users in with an email one-time code; there are no passwords.

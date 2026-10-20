@@ -143,7 +143,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Audit Reports", path: "/audit/reports", icon: ScrollText, permission: "reports" },
       { label: "Risk Reports", path: "/reports/risk", icon: TrendingUp, permission: "reports", phase2: true },
       { label: "Compliance Reports", path: "/reports/compliance", icon: FileCheck2, permission: "reports", phase2: true },
-      { label: "Cybersecurity Reports", path: "/reports/cybersecurity", icon: Shield, permission: "reports", phase2: true },
+      { label: "Cybersecurity Reports", path: "/reports/cybersecurity", icon: Shield, permission: "cyber" },
       { label: "BCM Reports", path: "/reports/bcm", icon: Activity, permission: "reports", phase2: true },
     ],
   },

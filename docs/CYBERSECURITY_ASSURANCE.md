@@ -3,10 +3,12 @@
 | Batch | Status | Checkpoint |
 | --- | --- | --- |
 | Batch 1 — assessments, vulnerabilities, remediation, evidence | **committed** (2026-10-20) | `ac879fe` — `feat(cyber): implement cybersecurity assessments and vulnerability management` |
-| Batch 2A — security testing engagements and test cases | **implemented, uncommitted for review** | base `ac879fe` |
+| Batch 2A — security testing engagements and test cases | **committed** (2026-10-20) | `4d00f22` — `feat(cyber): add authorized security testing engagements and test cases` |
+| Batch 2B — retesting, independent verification and assurance reporting | **implemented, uncommitted for review** | base `4d00f22` |
 
-Batch 1 built the registers. Batch 2A adds authorized security testing work
-on top of the SAME assessment register (see “Batch 2A” below).
+Batch 1 built the registers. Batch 2A adds authorized security testing work on
+top of the SAME assessment register, and Batch 2B adds retesting, independent
+verification and assurance reporting on top of Batch 2A (see below).
 
 ## What this batch delivers
 
@@ -101,7 +103,7 @@ was deferred here is Batch 2A below.)
 
 # Batch 2A — security testing engagements and test cases
 
-Status: **implemented, uncommitted for review** (2026-10-20).
+Status: **committed** in `4d00f22` (2026-10-20).
 
 ## What this batch adds
 
@@ -179,22 +181,22 @@ The register reports recorded counts only. A penetration-test pass rate is
 never presented as a measure of organizational security effectiveness or
 compliance; the UI states this in the panel and the assessment header.
 
-## Verification (Batch 2A) — final
+## Verification (Batch 2A) — at its checkpoint
 
 | Check | Result |
 | --- | --- |
 | `bun tsc -b --noEmit` | exit 0 |
 | `bun run lint` | exit 0 — 0 errors, 21 pre-existing warnings |
 | `bun run build` | exit 0 |
-| `tests/cyberTesting.test.ts` | 21 pass (12 structural/vocabulary, 9 runtime) |
+| `tests/cyberTesting.test.ts` | 23 pass (13 structural/vocabulary, 10 runtime) |
 
 The full configured unit set was run in documented chunks on the 1 vCPU / 2 GB
 host (`bun run test:unit` exceeds the 180 s command ceiling, so the same
-file-sets were run per group): **380 tests — 378 pass, 2 skip, 0 fail.** The 2
-skips are the pre-existing conditional bootstrap-prerequisite tests in
-`tests/security.adminlifecycle.test.ts`; they are reported as skipped, never as
-passing. Adding the 21 new `cyberTesting` tests to the previously confirmed 357
-accounts for the difference.
+file-sets were run per group). At the Batch 2A checkpoint that was **380 tests —
+378 pass, 2 skip, 0 fail**; the current combined figure for Batch 2A + 2B is in
+the Batch 2B section below. The 2 skips are the pre-existing conditional
+bootstrap-prerequisite tests in `tests/security.adminlifecycle.test.ts`; they are
+reported as skipped, never as passing.
 
 Browser suites were then run sequentially, all against the live preview: **33
 tests — 33 pass, 0 fail, 0 blocked**
@@ -221,3 +223,230 @@ No assertion was weakened and no suite was skipped.
 Automated penetration-testing or scanner integrations, exploit execution,
 security scoring, Business Continuity work, and any change to the Vulnerability
 Register, Risk Register or Compliance pages.
+
+# Batch 2B — retesting, independent verification and assurance reporting
+
+Status: **implemented and committed together with Batch 3** (2026-10-20), base
+`4d00f22`; the combined checkpoint uses
+`feat(cyber): complete retesting and security assurance reporting`.
+
+## What this batch adds
+
+| Capability | Where |
+| --- | --- |
+| Security retests (`cyberRetests`, `RT-001…`) against a previously recorded **failed or inconclusive** test, with reason, scope, target, tester, planned/actual dates, procedure, observations, evidence, reviewer and review outcome | `src/convex/cyberRetesting.ts`, `src/convex/schema.ts` |
+| Authorization-gated execution: authorized scope + live window + non-excluded, in-scope target; cancelled assessment refused | `retestExecutionStatus` (`src/lib/cyber.ts`), `startRetest` |
+| Independent review that refuses the tester **and** the executor; approved / rejected is final and a rejected retest requires a new one | `reviewRetest` |
+| Remediation traceability: original test → recorded failure → linked vulnerability → remediation actions → retests → verification → closure, with explicit “no vulnerability” / “no test origin” distinctions | `testTrace` |
+| Security assurance reports (`cyberTestReports`, `STR-001…`) with draft → in review → finalized → superseded versions and a **frozen snapshot** | `src/convex/cyberReports.ts`, `src/lib/cyberReport.ts` |
+| Honest report content: counts, retests, confirmed linked vulnerabilities, severity distribution, outstanding remediation, verification/closure, accessible evidence, limitations and untested scope | `buildAssuranceReportContent` (pure, unit-tested) |
+| UI: retest section inside a test case (plan → start → result → review), traceable status, and the assessment-level report section (create, submit, finalize, revise) | `src/components/iitams/cyber/CyberRetestPanel.tsx`, `CyberTestingPanel.tsx`, `CyberAssessmentsPage.tsx` |
+
+## Design rules
+
+1. **A retest is a new record, never a rewrite.** The original test keeps its
+   `completed` status and its historical outcome; the retest carries its own
+   evidence, observations, reviewer and append-only history
+   (`vulnerabilityEvents.retestId`). Only a `fail`/`inconclusive` result is
+   eligible, and a planned or passing test cannot be retested.
+
+2. **Execution still needs the written authorization.** A retest may run after
+   the assessment completed (remediation happens later), but not outside the
+   authorized scope, window or target, not against an excluded host, and not on
+   a cancelled assessment. The refusal reason shown in the UI is the exact text
+   the server raises.
+
+3. **A pass is a claim until reviewed.** Completion records the tester's
+   outcome and requires observations and an actual date. Independent review is a
+   separate transition, refuses the tester and the executor, and cannot be
+   repeated. A rejected retest is terminal — remediation needs a new retest.
+
+4. **Five different states, never conflated.** A tester's recorded retest
+   outcome, an independently reviewed retest, a vulnerability the owner marked
+   remediated, a vulnerability independently verified, and a vulnerability
+   formally closed are separate records and separate transitions. A passing or
+   even reviewed retest patches **no** vulnerability row: closure stays with the
+   Batch-1 verification workflow, and the ICT risk register is never touched.
+
+5. **Not every failure is a vulnerability, and not every vulnerability came
+   from a test.** The trace reports those absences explicitly instead of
+   implying a link.
+
+6. **A finalized report is frozen.** Finalization recomputes the content from
+   the records once and stores it as `snapshot`; a later test, retest or
+   remediation changes the live preview, never the approved report. A revision
+   is a new versioned row (`revisionOf`) and supersedes the earlier report only
+   when it is itself finalized — the earlier snapshot stays readable.
+
+7. **No scoring, no second reporting engine.** Reports aggregate recorded rows
+   and state that a test-pass count is not a measure of security effectiveness.
+   Export reuses the existing Audit Reports infrastructure only if it can be
+   adapted without crossing domain boundaries; structured on-screen reporting is
+   delivered here and richer export remains a separately scoped follow-up.
+
+8. **Authorization, tenancy and bounds.** Reads use `cyber.view`, writes use
+   `cyber.manage` + active membership, the organization always comes from the
+   access context, and every referenced id (test, retest, assessment,
+   vulnerability, evidence, reviewer) is re-validated against it. Listings scan
+   at most 250 rows, return at most 100 with a keyset cursor, and aggregation
+   reads at most 2 000 rows per table.
+
+## Verification (Batch 2A + 2B) — final
+
+Run against the final source state on the 1 vCPU / 2 GB host:
+
+| Check | Result |
+| --- | --- |
+| `bun tsc -b --noEmit` | exit 0 |
+| `bun run lint` | exit 0 — 0 errors, 21 pre-existing warnings |
+| `bun run build` (`tsc -b && vite build`) | exit 0 |
+| Full unit set (documented chunks) | **403 tests — 401 pass, 2 skip, 0 fail** |
+| Browser suites (sequential, live preview) | **34 tests — 34 pass, 0 fail, 0 blocked** |
+
+`bun run test:unit` still exceeds the 180 s command ceiling on this host, so the
+same file list was run in bounded chunks; every configured file was covered. The
+2 skips are the pre-existing conditional bootstrap-prerequisite tests in
+`tests/security.adminlifecycle.test.ts` — reported as skipped, never as passing.
+
+| Suite(s) | Pass |
+| --- | --- |
+| smoke | 10 |
+| audit lifecycle + administration | 4 |
+| membership | 2 |
+| effective membership | 1 |
+| administrator lifecycle | 1 |
+| provisioning + demo role | 3 |
+| invitations | 1 |
+| access reviews | 2 |
+| ICT risk register + risk monitoring | 3 |
+| compliance frameworks/controls | 1 |
+| control testing + compliance assessments | 2 |
+| compliance findings | 1 |
+| cybersecurity assessments + vulnerabilities (Batch 1) | 1 |
+| security testing (Batch 2A) | 1 |
+| **retesting + assurance reporting (Batch 2B)** | 1 |
+
+No assertion was weakened and no suite was skipped.
+
+## Deliberately not in Batch 2B
+
+Automated scanners or offensive tooling, a security-score dashboard, and
+Business Continuity. Report export moved to Batch 3 (below), which reuses the
+Audit Reports print/Word mechanism rather than adding a second engine.
+
+# Batch 3 — reporting hub, versioned exports and posture summaries
+
+Status: **implemented and committed with Batch 2B** (2026-10-20), base
+`4d00f22`.
+
+## What this batch adds
+
+| Capability | Where |
+| --- | --- |
+| `/reports/cybersecurity` report-discovery hub: organization-scoped list, search over reference/title/people/assessment, filters by assessment, status and creation date, keyset pagination, lifecycle counts, preparer/reviewer attribution, version and supersession links | `reportHub` (`src/convex/cyberReports.ts`), `src/components/iitams/cyber/CyberReportsPage.tsx` |
+| Report detail: assessment and scope, testing period and methodology, in-scope systems and exclusions, recorded test counts and outcomes, confirmed linked vulnerabilities, severity distribution, outstanding remediation, retest/verification status, evidence and withheld evidence, limitations, untested scope, preparer, reviewer, review decision and append-only history | `getReport`, `ReportDetailPanel` |
+| PDF (print) and Word (`.doc` HTML) export of the report as the requesting viewer may see it, named `STR-nnn-vN-finalized|draft-slug.ext` | `src/lib/cyberReportExport.ts`, `reportExportFilename` |
+| Organization-scoped posture summary from recorded rows only (tests completed/outstanding/passed/failed/inconclusive, confirmed vulnerabilities by severity, outstanding remediation, retests awaiting review, vulnerabilities awaiting verification/closure, finalized/superseded reports) | `postureSummary`, hub summary cards |
+| Management actions surfaced only to `cyber.manage`; read-only viewers see the same report without controls | `canManage` in every response, `Read-only` badge |
+| Separation of duties enforced server-side: preparer cannot review or finalize, approval stores the approved content fingerprint, finalization refuses when records changed after approval | `reviewReport`, `finalizeReport` |
+| Tests: structural, runtime, cross-tenant and Chromium journey | `tests/cyberReports.test.ts` (13), `tests/browser.cyber-reports.test.ts` (1) |
+
+## Design rules
+
+1. **One reporting engine.** Reports are still `cyberTestReports` rows produced
+   by `buildAssuranceReportContent`; the hub is a discovery layer over them.
+   Export renders the same frozen content through the existing self-hosted
+   print-to-PDF / Word-HTML mechanism used by Audit Reports — no PDF library and
+   no external service.
+
+2. **Frozen means frozen.** The detail view and both exports read
+   `snapshot`/`reviewedSnapshot` for a finalized or superseded report. Live data
+   is only computed for drafts and in-review reports, and those views say so.
+   Superseded versions stay readable and exportable as their original content.
+
+3. **Evidence follows the current viewer.** `getReport` re-applies
+   `redactReportContentForViewer` to the stored snapshot, so a restricted
+   evidence reference is withheld from a viewer who lacks the clearance even
+   though the snapshot captured it. Withheld counts are reported, never dropped
+   silently.
+
+4. **Export is a rendering of authorized reads.** The export input is the
+   already-redacted `getReport` payload; it contains no tester tokens, auth
+   secrets or internal credentials. Draft exports carry a “DRAFT / NOT
+   FINALIZED” banner and a `draft` filename so they cannot be mistaken for an
+   approved report.
+
+5. **No score.** The posture summary reports recorded counts and states that a
+   pass rate of recorded tests is not organizational security effectiveness. It
+   invents no composite score and exposes `truncated` flags when a 2 000-row cap
+   is reached instead of presenting a partial scan as complete.
+
+6. **Tenancy and bounds.** Every hub, detail, export and summary read starts
+   from `resolveCyberAccess` (`cyber.view`, active membership, server-derived
+   organization); a referenced report or assessment from another organization
+   is refused. Hub scans are capped at 250 rows per page request with a
+   `createdAt` keyset cursor and at most 100 rows returned; history reads are
+   capped at 200 and evidence at 100.
+
+## Verification (Batch 2A + 2B + 3) — final
+
+Run against the final source state on the 1 vCPU / 2 GB host:
+
+| Check | Result |
+| --- | --- |
+| `bun tsc -b --noEmit` | exit 0 |
+| `bun run lint` | exit 0 — 0 errors, 21 pre-existing warnings |
+| `bun run build` (`tsc -b && vite build`) | exit 0 |
+| Full unit set (documented chunks) | **418 tests — 416 pass, 2 skip, 0 fail** |
+| Browser suites (sequential, live preview) | **35 tests — 35 pass, 0 fail, 0 blocked** |
+
+`bun run test:unit` still exceeds the 180 s command ceiling on this host, so the
+same configured file list was run in bounded chunks; every file was covered. The
+2 skips are the pre-existing conditional bootstrap-prerequisite tests in
+`tests/security.adminlifecycle.test.ts` — reported as skipped, never as passing.
+
+| Chunk | Result |
+| --- | --- |
+| phase1, access, phase2, phase3a, phase3ab2, phase3ab3 | 123 pass |
+| security.devotp, demoescalation, rolemanagement, previewOwner, authOtp | 46 pass |
+| security.adminlifecycle | 21 pass, 2 skip |
+| security.invitations | 23 pass |
+| accessReview | 13 pass |
+| risk, risk.tenant, riskAssessments, riskTreatment, riskMonitoring | 45 pass |
+| compliance, complianceTesting, complianceAssessments, complianceFindings | 62 pass |
+| cyber.security, cyberAssurance, cyberTesting, cyberRetesting, cyberReports | 83 pass |
+
+Browser suites were run sequentially against the live preview: smoke + audit
+lifecycle 11, administration + membership 5, effective membership 1,
+administrator lifecycle 1, provisioning + demo role 3, invitations 1, access
+reviews 2, risk register + monitoring 3, compliance 2, compliance assessments +
+findings 2, cyber testing + retesting 2, cyber assurance + **reporting hub 2**.
+No assertion was weakened and no suite was skipped.
+
+## Deliberately not in Batch 3
+
+Native PDF/DOCX generation. The delivered export is **browser print-to-PDF**
+(an HTML document with a print trigger) and **Word-compatible HTML `.doc`** —
+not a server-rendered PDF binary and not a native Office Open XML `.docx`.
+The self-hosted path is the supported format; native document generation is a
+separately scoped follow-up. Also not in this batch: scheduled report delivery,
+a composite security score, offensive scanners, Business Continuity and
+Cybersecurity Batch 4.
+
+## Reporting completeness and export safety
+
+- `AssuranceReportContent.limitations.truncatedDatasets` records every dataset
+  whose aggregation scan reached its 2 000-row cap. Report detail and both
+  exports state that those counts are **lower bounds**, that the report does not
+  claim comprehensive coverage, and name the affected datasets. The list is part
+  of the frozen snapshot, so a finalized report keeps the limitation it was
+  approved with.
+- Export HTML escapes every user-supplied field (title, narrative text, actor
+  labels, evidence filenames/classifications, retest references). A test feeds
+  `</td><script>…</script>`, `<img onerror=…>` and a script-bearing name and
+  asserts no raw markup survives; the only live script is the print trigger the
+  module adds itself. Evidence storage URLs and references are never rendered.
+- Re-finalizing a finalized report is refused (tested), and Convex's
+  serializable mutations make a concurrent double-finalize or review/finalize
+  race resolve to one committed transition with the other re-evaluated against
+  the moved state.

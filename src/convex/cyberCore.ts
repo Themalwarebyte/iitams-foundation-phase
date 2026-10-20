@@ -226,14 +226,16 @@ export async function validateEvidenceIds(
   return unique;
 }
 
-/** Per-organization reference sequence (CSA-001, VUL-001, VRA-001). */
+/** Per-organization reference sequence (CSA-001, VUL-001, VRA-001, RT-001). */
 export async function nextReference(
   ctx: MutationCtx,
   table:
     | "securityAssessments"
     | "vulnerabilities"
     | "vulnerabilityRemediationActions"
-    | "cyberTestCases",
+    | "cyberTestCases"
+    | "cyberRetests"
+    | "cyberTestReports",
   organizationId: Id<"organizations">,
   prefix: string,
 ): Promise<string> {
@@ -252,6 +254,16 @@ export async function nextReference(
   } else if (table === "vulnerabilityRemediationActions") {
     rows = await ctx.db
       .query("vulnerabilityRemediationActions")
+      .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
+      .take(limit);
+  } else if (table === "cyberRetests") {
+    rows = await ctx.db
+      .query("cyberRetests")
+      .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
+      .take(limit);
+  } else if (table === "cyberTestReports") {
+    rows = await ctx.db
+      .query("cyberTestReports")
       .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
       .take(limit);
   } else {
@@ -281,6 +293,7 @@ export async function appendCyberEvent(
     assessmentId?: Id<"securityAssessments">;
     actionId?: Id<"vulnerabilityRemediationActions">;
     testCaseId?: Id<"cyberTestCases">;
+    retestId?: Id<"cyberRetests">;
     type: string;
     fromStatus?: string;
     toStatus?: string;
@@ -296,6 +309,7 @@ export async function appendCyberEvent(
     assessmentId: input.assessmentId,
     actionId: input.actionId,
     testCaseId: input.testCaseId,
+    retestId: input.retestId,
     type: input.type,
     fromStatus: input.fromStatus,
     toStatus: input.toStatus,
