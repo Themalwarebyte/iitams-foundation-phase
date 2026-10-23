@@ -126,6 +126,34 @@ type RiskRow = {
   residualScore: number;
 };
 
+type RiskPage = {
+  items: RiskRow[];
+  nextCursor: string | null;
+  isDone: boolean;
+  complete: boolean;
+  scanned: number;
+};
+
+/**
+ * Walk the register through the server-issued cursors. The register is
+ * paginated, so "all rows" means traversing every page — never a single
+ * bounded read.
+ */
+async function allRisks(client: ConvexHttpClient): Promise<RiskRow[]> {
+  const rows: RiskRow[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 40; page += 1) {
+    const result = (await client.query(api.risks.listRisks, {
+      numItems: 100,
+      ...(cursor ? { cursor } : {}),
+    })) as RiskPage;
+    rows.push(...result.items);
+    if (result.isDone || !result.nextCursor) break;
+    cursor = result.nextCursor;
+  }
+  return rows;
+}
+
 let fixtureA: Fixture | null = null;
 let fixtureB: Fixture | null = null;
 let clientA: ConvexHttpClient | null = null;
@@ -190,8 +218,8 @@ describe("Risk register — cross-tenant isolation (two real organizations)", ()
       if (!fixtureA || !fixtureB || !clientA || !clientB) {
         throw new Error("[test:PREREQ-FAILED] tenant fixtures or OTP sign-in unavailable");
       }
-      const aRows = (await clientA.query(api.risks.listRisks, {})) as RiskRow[];
-      const bRows = (await clientB.query(api.risks.listRisks, {})) as RiskRow[];
+      const aRows = await allRisks(clientA);
+      const bRows = await allRisks(clientB);
 
       expect(aRows.length).toBeGreaterThanOrEqual(1);
       expect(bRows.length).toBeGreaterThanOrEqual(1);
@@ -206,10 +234,16 @@ describe("Risk register — cross-tenant isolation (two real organizations)", ()
 
       const aSummary = (await clientA.query(api.risks.riskSummary, {})) as {
         total: number;
+        exact: boolean;
       };
       const bSummary = (await clientB.query(api.risks.riskSummary, {})) as {
         total: number;
+        exact: boolean;
       };
+      // Bounded fixture tenants fit inside the summary window, so the reported
+      // count is exact and matches the rows reachable through pagination.
+      expect(aSummary.exact).toBe(true);
+      expect(bSummary.exact).toBe(true);
       expect(aSummary.total).toBe(aRows.length);
       expect(bSummary.total).toBe(bRows.length);
     },
@@ -266,7 +300,7 @@ describe("Risk register — cross-tenant isolation (two real organizations)", ()
       if (!fixtureA || !fixtureB || !clientA || !clientB) {
         throw new Error("[test:PREREQ-FAILED] tenant fixtures or OTP sign-in unavailable");
       }
-      const bBefore = (await clientB.query(api.risks.listRisks, {})) as RiskRow[];
+      const bBefore = await allRisks(clientB);
 
       const created = (await clientA.mutation(api.risks.createRisk, {
         title: `${RUN_TAG} Tenant A isolation check ${Date.now()}`,
@@ -280,8 +314,8 @@ describe("Risk register — cross-tenant isolation (two real organizations)", ()
       })) as { riskId: string; code: string };
       expect(created.code).toMatch(/^R-\d{3,}$/);
 
-      const aRows = (await clientA.query(api.risks.listRisks, {})) as RiskRow[];
-      const bAfter = (await clientB.query(api.risks.listRisks, {})) as RiskRow[];
+      const aRows = await allRisks(clientA);
+      const bAfter = await allRisks(clientB);
       expect(aRows.some((r) => r._id === created.riskId)).toBe(true);
       expect(bAfter.map((r) => r._id)).toEqual(bBefore.map((r) => r._id));
 
@@ -456,7 +490,7 @@ describe("Risk register — cross-tenant isolation (two real organizations)", ()
       await cleanUpFixtureRecords();
 
       // Tenant A: this run's tagged risk is gone, its fixture baseline stays.
-      const aRows = (await clientA.query(api.risks.listRisks, {})) as RiskRow[];
+      const aRows = await allRisks(clientA);
       expect(aRows.some((r) => r.title.startsWith(RUN_TAG))).toBe(false);
       expect(aRows.some((r) => r.code === fixtureA!.riskCode)).toBe(true);
 

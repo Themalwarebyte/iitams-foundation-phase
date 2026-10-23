@@ -1063,8 +1063,10 @@ describe("Compliance assessments — runtime", () => {
         limit: 50,
       })) as Array<{ action: string }>;
       expect(logs.length).toBeGreaterThan(0);
-      const risks = (await manager.query(api.risks.listRisks, {})) as unknown[];
-      expect(risks.length).toBeGreaterThanOrEqual(1);
+      const risks = (await manager.query(api.risks.listRisks, {})) as {
+        items: unknown[];
+      };
+      expect(risks.items.length).toBeGreaterThanOrEqual(1);
     },
     180000,
   );

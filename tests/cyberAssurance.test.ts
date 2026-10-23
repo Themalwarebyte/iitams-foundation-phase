@@ -489,12 +489,10 @@ runtime("cybersecurity assurance (runtime)", () => {
     ).rejects.toThrow(/Permission denied: cyber.manage/);
 
     // Tenant A holds a real risk id; tenant M must not be able to link it.
-    const foreignRisks = (await readOnly.query(api.risks.listRisks, {})) as
-      | { rows?: Array<{ _id: string }> }
-      | Array<{ _id: string }>;
-    const foreignRiskId = Array.isArray(foreignRisks)
-      ? foreignRisks[0]?._id
-      : foreignRisks.rows?.[0]?._id;
+    const foreignRisks = (await readOnly.query(api.risks.listRisks, {})) as {
+      items: Array<{ _id: string }>;
+    };
+    const foreignRiskId = foreignRisks.items[0]?._id;
     if (foreignRiskId) {
       const own = await manager.mutation(
         api.cyberVulnerabilities.createVulnerability,

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { useSearchParams } from "react-router";
 import { api } from "@/convex/_generated/api";
@@ -60,6 +60,8 @@ import { formatDate } from "@/lib/format";
 import {
   AlertTriangle,
   CalendarClock,
+  ChevronLeft,
+  ChevronRight,
   ClipboardList,
   Loader2,
   Pencil,
@@ -79,6 +81,9 @@ import { toast } from "sonner";
  */
 
 const FACTORS = [1, 2, 3, 4, 5] as const;
+
+/** Rows requested per register page (the server caps this at 100). */
+const RISK_PAGE_SIZE = 25;
 
 type RiskRow = {
   _id: string;
@@ -112,6 +117,22 @@ type RiskDetail = RiskRow & {
     actorLabel?: string;
     createdAt: number;
   }>;
+};
+
+/**
+ * One server page of the register. `nextCursor` is opaque and only ever
+ * echoed back to the server; `complete` reports whether the traversal covered
+ * the whole register, so filtering is never described as exhaustive when it
+ * is not.
+ */
+type RiskPage = {
+  items: RiskRow[];
+  nextCursor: string | null;
+  isDone: boolean;
+  complete: boolean;
+  scanned: number;
+  pageSize: number;
+  filtered: boolean;
 };
 
 interface RiskFormState {
@@ -208,11 +229,14 @@ function RiskFormDialog({
   onOpenChange,
   risk,
   canManage,
+  onCreated,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   risk?: RiskDetail;
   canManage: boolean;
+  /** Lets the register jump back to the newest page after a creation. */
+  onCreated?: (riskId: Id<"risks">) => void;
 }) {
   const createRisk = useMutation(api.risks.createRisk);
   const updateRisk = useMutation(api.risks.updateRisk);
@@ -272,6 +296,7 @@ function RiskFormDialog({
           reviewDue,
         });
         toast.success(`Risk ${result.code} created.`);
+        onCreated?.(result.riskId as Id<"risks">);
       }
       onOpenChange(false);
       if (!risk) setForm(emptyForm());
@@ -661,23 +686,47 @@ export function RiskRegisterPage() {
   const canView = session?.permissions?.risk === true;
   const canManage = session?.permissions?.riskManage === true;
 
-  const risks = useQuery(
+  // Cursor stack: one opaque server cursor per traversed page. Changing a
+  // filter restarts the traversal, because the previous cursors described a
+  // different query. The server owns cursor meaning; the UI never parses one.
+  const [cursorStack, setCursorStack] = useState<Array<string | undefined>>([
+    undefined,
+  ]);
+  const filtersKey = `${search.trim()}|${category}|${status}|${band}`;
+  const appliedFilters = useRef(filtersKey);
+  useEffect(() => {
+    if (appliedFilters.current === filtersKey) return;
+    appliedFilters.current = filtersKey;
+    setCursorStack([undefined]);
+  }, [filtersKey]);
+  const cursor = cursorStack[cursorStack.length - 1];
+  const pageNumber = cursorStack.length;
+
+  const page = useQuery(
     api.risks.listRisks,
     canView
       ? {
-          search: search.trim() || undefined,
-          category: category === "all" ? undefined : (category as RiskCategory),
-          status: status === "all" ? undefined : (status as RiskStatus),
-          band: band === "all" ? undefined : band,
+          numItems: RISK_PAGE_SIZE,
+          ...(search.trim() ? { search: search.trim() } : {}),
+          ...(category === "all"
+            ? {}
+            : { category: category as RiskCategory }),
+          ...(status === "all" ? {} : { status: status as RiskStatus }),
+          ...(band === "all" ? {} : { band }),
+          ...(cursor ? { cursor } : {}),
         }
       : "skip",
-  ) as RiskRow[] | undefined;
+  ) as RiskPage | undefined;
+  const risks = page?.items;
   const summary = useQuery(
     api.risks.riskSummary,
     canView ? {} : "skip",
   ) as
     | {
         total: number;
+        exact: boolean;
+        sampled: boolean;
+        scanLimit: number;
         bands: Record<RiskBand, number>;
         overdueReviews: number;
         dueSoon: number;
@@ -752,9 +801,19 @@ export function RiskRegisterPage() {
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           label="Risks in register"
-          value={summary?.total ?? "…"}
+          value={
+            summary === undefined
+              ? "…"
+              : summary.exact
+                ? summary.total
+                : `≥ ${summary.total}`
+          }
           icon={ClipboardList}
-          hint="Scoped to your organization"
+          hint={
+            summary && !summary.exact
+              ? `Lower bound from the ${summary.scanLimit.toLocaleString()} most recent records`
+              : "Exact count for your organization"
+          }
         />
         <KpiCard
           label="Critical residual"
@@ -777,6 +836,15 @@ export function RiskRegisterPage() {
           hint="Within the next 30 days"
         />
       </div>
+
+      {summary && !summary.exact && (
+        <p className="-mt-4 mb-6 text-xs text-muted-foreground">
+          This organization holds more risks than the summary window scans.
+          Counts above are a lower bound computed from the{" "}
+          {summary.scanLimit.toLocaleString()} most recent records, not an
+          organization-wide total.
+        </p>
+      )}
 
       <div
         aria-label="Treatment progress summary"
@@ -861,11 +929,21 @@ export function RiskRegisterPage() {
       ) : risks.length === 0 ? (
         <EmptyState
           icon={ShieldCheck}
-          title={search || category !== "all" || status !== "all" || band !== "all" ? "No risks match those filters" : "No risks recorded yet"}
+          title={
+            page?.filtered
+              ? page.complete
+                ? "No risks match those filters"
+                : "No matching risks in this part of the register"
+              : "No risks recorded yet"
+          }
           description={
-            canManage
-              ? "Create the first risk record — it will be scoped to your organization, scored on the 5×5 model and written to the audit trail."
-              : "Risk records created by authorized users will appear here."
+            page?.filtered && !page.complete
+              ? "Search and filters are applied to the records scanned for this page. Use Next page to keep searching the register — nothing is hidden, it has simply not been reached yet."
+              : page?.filtered
+                ? "Every record in the register was scanned. Adjust the search term or clear a filter to widen the result."
+                : canManage
+                  ? "Create the first risk record — it will be scoped to your organization, scored on the 5×5 model and written to the audit trail."
+                  : "Risk records created by authorized users will appear here."
           }
         />
       ) : (
@@ -943,10 +1021,58 @@ export function RiskRegisterPage() {
         </Card>
       )}
 
+      {page && (
+        <div
+          aria-label="Register pagination"
+          className="mt-4 flex flex-wrap items-center justify-between gap-3"
+        >
+          <p className="text-xs text-muted-foreground">
+            Page {pageNumber} · {(risks?.length ?? 0).toLocaleString()} record
+            {(risks?.length ?? 0) === 1 ? "" : "s"} · register order by
+            identifier
+            {page.filtered &&
+              (page.complete
+                ? " · filters applied to the complete register"
+                : ` · filters applied to the ${page.scanned.toLocaleString()} records scanned for this page; the rest of the register has not been searched yet`)}
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={pageNumber === 1}
+              onClick={() => setCursorStack((stack) => stack.slice(0, -1))}
+            >
+              <ChevronLeft className="size-4" aria-hidden />
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page.isDone || !page.nextCursor}
+              onClick={() =>
+                setCursorStack((stack) =>
+                  page.nextCursor ? [...stack, page.nextCursor] : stack,
+                )
+              }
+            >
+              Next
+              <ChevronRight className="size-4" aria-hidden />
+            </Button>
+          </div>
+        </div>
+      )}
+
       <RiskFormDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
         canManage={canManage}
+        onCreated={(riskId) => {
+          // The register is ordered by identifier, so a new record sits at the
+          // end of the traversal. Open it directly instead of pretending it is
+          // on page one.
+          setPickedRiskId(riskId);
+          setCursorStack([undefined]);
+        }}
       />
       <RiskDetailDialog
         riskId={selected}

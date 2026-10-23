@@ -1065,8 +1065,10 @@ describe("Compliance — runtime", () => {
         action: "compliance.framework_created",
       })) as Array<unknown>;
       expect(auditStillThere.length).toBeGreaterThan(0);
-      const risksUntouched = (await asManager.query(api.risks.listRisks, {})) as Array<unknown>;
-      expect(risksUntouched.length).toBeGreaterThanOrEqual(1);
+      const risksUntouched = (await asManager.query(api.risks.listRisks, {})) as {
+        items: Array<unknown>;
+      };
+      expect(risksUntouched.items.length).toBeGreaterThanOrEqual(1);
     },
     180000,
   );

@@ -6,6 +6,7 @@ import { logAudit, requirePermission } from "./auditAccess";
 import type { AccessContext } from "./access";
 import {
   RISK_ASSET_MAX,
+  RISK_BANDS,
   RISK_OWNER_MAX,
   RISK_TEXT_MAX,
   RISK_TITLE_MAX,
@@ -14,6 +15,9 @@ import {
   riskCategoryValidator,
   riskScore,
   riskStatusValidator,
+  type RiskBand,
+  type RiskCategory,
+  type RiskStatus,
 } from "../lib/risk";
 
 /**
@@ -33,7 +37,47 @@ import {
  * edits, and closing a risk does not bypass any permission.
  */
 
-const RISK_LIST_LIMIT = 500;
+/**
+ * Register pagination contract
+ * ----------------------------
+ * ORDERING — the register is ordered by its per-organization identifier
+ * (`R-001`, `R-002`, …) ascending over the `by_organization_code` index. That
+ * index is unique per organization, so the order is total and deterministic:
+ * no two rows can share a position, and an unchanged register always traverses
+ * in exactly the same sequence. It is also the order people expect a register
+ * to read in.
+ *
+ * TRAVERSAL — `cursor` is the last identifier the previous request examined.
+ * The server scans forward from it with a bounded keyset read, so a client can
+ * reach every record — including records created long after the first page —
+ * without ever skipping or repeating one. A request performs at most
+ * `RISK_SCAN_BUDGET` indexed document reads, which keeps one call cheap for an
+ * organization with any number of risks. Cursors are validated by the server;
+ * a cursor is only a position inside the caller's own register (the
+ * organization always comes from the access context), never an authorization
+ * token.
+ *
+ * FILTERS — search, category, status and residual band are applied server-side
+ * to the records scanned by this request, so filtering genuinely searches the
+ * register as it is traversed instead of only re-sorting what the browser
+ * already has. When the scan budget runs out before the register ends,
+ * `complete` is false and the response says how many records were examined, so
+ * the UI can state that the search is partial instead of implying it covered
+ * everything.
+ */
+const RISK_PAGE_DEFAULT = 25;
+const RISK_PAGE_MAX = 100;
+/** Documents one request may examine (bounded, indexed, no full materialisation). */
+const RISK_SCAN_BUDGET = 400;
+/** Keyset batch size inside the scan budget. */
+const RISK_SCAN_BATCH = 100;
+
+/**
+ * Bounded window for the register summary. One thousand documents is far below
+ * the per-query read budget; `exact` is false once the window is reached, and
+ * callers must present `total` as a lower bound in that case.
+ */
+const RISK_SUMMARY_SCAN_LIMIT = 1000;
 
 interface RiskAccess {
   access: AccessContext;
@@ -130,41 +174,129 @@ function presentRisk(risk: Doc<"risks">, now: number) {
   };
 }
 
-/** Organization-scoped register list with optional in-page filtering. */
+interface RiskFilters {
+  search?: string;
+  category?: RiskCategory;
+  status?: RiskStatus;
+  band?: RiskBand;
+}
+
+/** Filter predicate applied to stored records (scores derived, never trusted). */
+function matchesRiskFilters(risk: Doc<"risks">, filters: RiskFilters): boolean {
+  if (filters.category && risk.category !== filters.category) return false;
+  if (filters.status && risk.status !== filters.status) return false;
+  if (filters.band) {
+    const band = riskBand(riskScore(risk.residualLikelihood, risk.residualImpact));
+    if (band !== filters.band) return false;
+  }
+  if (!filters.search) return true;
+  return (
+    risk.code.toLowerCase().includes(filters.search) ||
+    risk.title.toLowerCase().includes(filters.search) ||
+    (risk.ownerName ?? "").toLowerCase().includes(filters.search) ||
+    (risk.assetOrService ?? "").toLowerCase().includes(filters.search) ||
+    risk.category.toLowerCase().includes(filters.search)
+  );
+}
+
+/**
+ * One page of the organization's register, newest first, with optional filters.
+ *
+ * Every call re-resolves `risk.view` and the organization from the caller's
+ * access context, so a page can never be read across tenants or by a role
+ * without the permission. The returned cursor is the only way to continue: it
+ * is produced by the indexed traversal and validated by Convex, so a forged or
+ * foreign cursor is rejected instead of being trusted.
+ */
 export const listRisks = query({
   args: {
     search: v.optional(v.string()),
     category: v.optional(riskCategoryValidator),
     status: v.optional(riskStatusValidator),
     band: v.optional(v.string()),
+    numItems: v.optional(v.number()),
+    cursor: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
     const org = await requireRiskViewer(ctx);
-    const rows = await ctx.db
-      .query("risks")
-      .withIndex("by_organization", (q) =>
-        q.eq("organizationId", org.organizationId),
-      )
-      .take(RISK_LIST_LIMIT);
+
+    const pageSize = args.numItems ?? RISK_PAGE_DEFAULT;
+    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > RISK_PAGE_MAX) {
+      throw new Error(
+        `Page size must be a whole number between 1 and ${RISK_PAGE_MAX}`,
+      );
+    }
+    const band = args.band === undefined ? undefined : (args.band as RiskBand);
+    if (band !== undefined && !RISK_BANDS.includes(band)) {
+      throw new Error(`Unknown residual band: ${args.band}`);
+    }
+    const search = args.search?.trim().toLowerCase() || undefined;
+    const filters: RiskFilters = {
+      search,
+      category: args.category,
+      status: args.status,
+      band,
+    };
 
     const now = Date.now();
-    const search = args.search?.trim().toLowerCase();
-    return rows
-      .map((r) => presentRisk(r, now))
-      .filter((r) => {
-        if (args.category && r.category !== args.category) return false;
-        if (args.status && r.status !== args.status) return false;
-        if (args.band && r.residualBand !== args.band) return false;
-        if (!search) return true;
-        return (
-          r.code.toLowerCase().includes(search) ||
-          r.title.toLowerCase().includes(search) ||
-          (r.ownerName ?? "").toLowerCase().includes(search) ||
-          (r.assetOrService ?? "").toLowerCase().includes(search) ||
-          (r.category ?? "").toLowerCase().includes(search)
-        );
-      })
-      .sort((a, b) => b.residualScore - a.residualScore);
+
+    // Cursor = the last identifier the previous request examined. It only ever
+    // positions a traversal inside the caller's own organization, and its shape
+    // is validated so a malformed value is refused rather than silently
+    // restarting or skipping the register.
+    const after = args.cursor ?? null;
+    if (after !== null && !/^R-\d{3,}$/.test(after)) {
+      throw new Error("Invalid register cursor");
+    }
+
+    const items: Array<ReturnType<typeof presentRisk>> = [];
+    let scanned = 0;
+    let lastCode: string | null = after;
+    let done = false;
+
+    while (!done && items.length < pageSize && scanned < RISK_SCAN_BUDGET) {
+      const batchSize = Math.min(RISK_SCAN_BATCH, RISK_SCAN_BUDGET - scanned);
+      const rows =
+        lastCode === null
+          ? await ctx.db
+              .query("risks")
+              .withIndex("by_organization_code", (q) =>
+                q.eq("organizationId", org.organizationId),
+              )
+              .order("asc")
+              .take(batchSize)
+          : await ctx.db
+              .query("risks")
+              .withIndex("by_organization_code", (q) =>
+                q
+                  .eq("organizationId", org.organizationId)
+                  .gt("code", lastCode as string),
+              )
+              .order("asc")
+              .take(batchSize);
+      scanned += rows.length;
+      if (rows.length < batchSize) done = true;
+      for (const risk of rows) {
+        lastCode = risk.code;
+        if (matchesRiskFilters(risk, filters)) items.push(presentRisk(risk, now));
+      }
+    }
+
+    const filtered = Boolean(search || args.category || args.status || band);
+    return {
+      items,
+      // `null` only when the traversal reached the end of the register.
+      nextCursor: done ? null : lastCode,
+      isDone: done,
+      // The whole register was walked for this filter set, so `items` is the
+      // complete filtered result set rather than a prefix of it.
+      complete: done,
+      // Documents examined by this request. Filters apply to exactly these
+      // records, which is what the disclosure in the UI must state.
+      scanned,
+      pageSize,
+      filtered,
+    };
   },
 });
 
@@ -200,7 +332,15 @@ export const getRisk = query({
   },
 });
 
-/** Aggregate register posture for the page KPI strip (bounded read). */
+/**
+ * Aggregate register posture for the page KPI strip.
+ *
+ * Reads a bounded, newest-first window. While the register fits inside the
+ * window the figures are exact; once the window is full `exact` is false and
+ * `total` is a LOWER BOUND that callers must label as such (never presented as
+ * an organization-wide total). Banding uses the same shared 5×5 model as the
+ * register and the detail view.
+ */
 export const riskSummary = query({
   args: {},
   handler: async (ctx) => {
@@ -210,7 +350,7 @@ export const riskSummary = query({
       .withIndex("by_organization", (q) =>
         q.eq("organizationId", org.organizationId),
       )
-      .take(RISK_LIST_LIMIT);
+      .take(RISK_SUMMARY_SCAN_LIMIT);
     const now = Date.now();
     const soon = now + 30 * 24 * 60 * 60 * 1000;
 
@@ -227,9 +367,13 @@ export const riskSummary = query({
         else if (r.reviewDue <= soon) dueSoon += 1;
       }
     }
+    const exact = rows.length < RISK_SUMMARY_SCAN_LIMIT;
     return {
       total: rows.length,
-      sampled: rows.length === RISK_LIST_LIMIT,
+      // Exact organization-wide total, or an honest lower bound.
+      exact,
+      sampled: !exact,
+      scanLimit: RISK_SUMMARY_SCAN_LIMIT,
       bands,
       statuses,
       overdueReviews,
@@ -242,22 +386,44 @@ export const riskSummary = query({
  * Next unique risk identifier for the organization (R-001…). Mutations are
  * serialized by Convex, and the caller re-checks the unique index, so two
  * concurrent creations can never share a code.
+ *
+ * The numeric maximum is read twice, both times in bounded order rather than
+ * from a capped scan of the register: the greatest code in the code index (one
+ * document) and the codes of the newest records (zero-padded codes mean the
+ * newest rows normally hold the highest numbers). Neither read depends on the
+ * register fitting inside a listing window, and the unique-index probe below
+ * remains the authority on reuse.
  */
+const RISK_CODE_SCAN = 50;
+
 async function nextRiskCode(
   ctx: MutationCtx,
   organizationId: Id<"organizations">,
 ): Promise<string> {
-  const rows = await ctx.db
-    .query("risks")
-    .withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
-    .take(RISK_LIST_LIMIT);
+  const [latestByCode, newest] = await Promise.all([
+    ctx.db
+      .query("risks")
+      .withIndex("by_organization_code", (q) =>
+        q.eq("organizationId", organizationId),
+      )
+      .order("desc")
+      .take(1),
+    ctx.db
+      .query("risks")
+      .withIndex("by_organization", (q) =>
+        q.eq("organizationId", organizationId),
+      )
+      .order("desc")
+      .take(RISK_CODE_SCAN),
+  ]);
   let max = 0;
-  for (const r of rows) {
+  for (const r of [...latestByCode, ...newest]) {
     const match = /^R-(\d+)$/.exec(r.code);
     if (match) max = Math.max(max, Number(match[1]));
   }
   let candidate = `R-${String(max + 1).padStart(3, "0")}`;
-  // Defensive: never reuse a code even if the scan missed a high suffix.
+  // Defensive: never reuse a code even if the index order missed a suffix
+  // (codes longer than the three-digit padding sort differently).
   for (let i = 0; i < 1000; i += 1) {
     const clash = await ctx.db
       .query("risks")

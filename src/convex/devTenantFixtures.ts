@@ -78,6 +78,17 @@ export const ensureTenantFixtures = internalMutation({
         email: "risk-tenant-m@iitams.test",
         riskTitle: "Tenant M fixture risk (monitoring baseline)",
       },
+      {
+        // Dedicated SCALE tenant for the register-pagination suite. It is the
+        // only fixture whose register is deliberately grown past every single
+        // listing window, so multi-page traversal, summary sampling and
+        // identifier allocation are exercised against an isolated organization
+        // instead of the shared demo register.
+        code: "IITAMS-TEST-P",
+        name: "IITAMS Test Tenant P",
+        email: "risk-tenant-p@iitams.test",
+        riskTitle: "Tenant P fixture risk (pagination baseline)",
+      },
     ] as const;
 
     const organizations: Array<{
@@ -436,6 +447,7 @@ const FIXTURE_BASELINE_CODES: Record<string, readonly string[]> = {
   "IITAMS-TEST-A": ["R-001"],
   "IITAMS-TEST-B": ["R-001", "R-002"],
   "IITAMS-TEST-M": ["R-001"],
+  "IITAMS-TEST-P": ["R-001"],
 };
 
 async function fixtureOrganization(ctx: MutationCtx, code: string) {
@@ -865,5 +877,106 @@ export const resetFixtureRecords = internalMutation({
       deletedAssessments,
       remaining: Math.max(removable.length - batch.length, 0),
     };
+  },
+});
+
+/**
+ * DEVELOPMENT-ONLY bulk risk seeding for the register-pagination suite.
+ * ======================================================================
+ * The pagination requirements (reach every record, traverse many pages, be
+ * honest about summary sampling) can only be proven against a register larger
+ * than one listing window. This mutation grows a FIXTURE organization's
+ * register in bounded batches so the suite can exercise that scale without
+ * touching the shared demo organization or any real tenant.
+ *
+ * Safety properties:
+ *  - `internalMutation` behind the development gate: not reachable from a
+ *    browser, HTTP route or authenticated client;
+ *  - only an explicitly demo-flagged fixture organization is accepted, and the
+ *    batch size is capped so one call stays inside a Convex transaction;
+ *  - every seeded row carries the caller's `[iitams-…]` title tag, so
+ *    `resetFixtureRecords` (which deletes by that tag) can remove exactly these
+ *    rows again and nothing else. Codes continue the organization's real
+ *    sequence and are re-checked against the unique index, so seeded rows can
+ *    never collide with a record created through the API;
+ *  - no audit entry is fabricated: seed rows are test data, and the identifiers
+ *    they consume remain permanently unused (the register never reuses codes).
+ */
+export const seedFixtureRisks = internalMutation({
+  args: {
+    organizationCode: v.string(),
+    titleTag: v.string(),
+    count: v.number(),
+  },
+  handler: async (ctx, args) => {
+    if (!guestAuthEnabled()) {
+      throw new Error("Fixture seeding is only available on development deployments");
+    }
+    const org = await fixtureOrganization(ctx, args.organizationCode);
+    if (!org) throw new Error(`Unknown fixture organization: ${args.organizationCode}`);
+
+    const tag = args.titleTag.trim();
+    if (!/^\[iitams-[a-z0-9-]+\]$/.test(tag)) {
+      throw new Error("Refused: a fixture seeding tag must look like [iitams-test-name]");
+    }
+    const count = Math.floor(args.count);
+    if (!Number.isInteger(count) || count < 1 || count > 250) {
+      throw new Error("Refused: seed between 1 and 250 risks per call");
+    }
+
+    const latest = await ctx.db
+      .query("risks")
+      .withIndex("by_organization_code", (q) =>
+        q.eq("organizationId", org._id),
+      )
+      .order("desc")
+      .take(1);
+    let next = 1;
+    for (const row of latest) {
+      const match = /^R-(\d+)$/.exec(row.code);
+      if (match) next = Math.max(next, Number(match[1]) + 1);
+    }
+
+    const now = Date.now();
+    let firstCode = "";
+    let lastCode = "";
+    const categories = ["Cyber", "Process", "Data", "Third-party"] as const;
+    for (let i = 0; i < count; i += 1) {
+      // The unique index is the authority: increment until the code is free.
+      let code = `R-${String(next).padStart(3, "0")}`;
+      for (let guard = 0; guard < 1000; guard += 1) {
+        const clash = await ctx.db
+          .query("risks")
+          .withIndex("by_organization_code", (q) =>
+            q.eq("organizationId", org._id).eq("code", code),
+          )
+          .unique();
+        if (!clash) break;
+        next += 1;
+        code = `R-${String(next).padStart(3, "0")}`;
+      }
+      await ctx.db.insert("risks", {
+        organizationId: org._id,
+        code,
+        title: `${tag} seeded risk ${i + 1}`,
+        category: categories[i % categories.length],
+        description: "Synthetic pagination fixture row — not a real risk.",
+        inherentLikelihood: ((i % 5) + 1) as number,
+        inherentImpact: (((i + 2) % 5) + 1) as number,
+        residualLikelihood: (((i + 1) % 5) + 1) as number,
+        residualImpact: (((i + 3) % 5) + 1) as number,
+        status: i % 7 === 0 ? "mitigating" : "open",
+        ownerName: "Fixture owner",
+        reviewDue: now + 30 * 24 * 60 * 60 * 1000,
+        isDemo: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      if (i === 0) firstCode = code;
+      lastCode = code;
+      next += 1;
+    }
+
+    return { inserted: count, firstCode, lastCode };
   },
 });

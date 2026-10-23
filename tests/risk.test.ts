@@ -156,6 +156,25 @@ describe("Risk register — structural guards", () => {
     expect(httpSrc).not.toContain("risks:");
     expect(httpSrc).not.toContain("createRisk");
   });
+
+  test("the register is paginated server-side and the summary is disclosed", () => {
+    // One validated, indexed paginated read per request — no fixed window that
+    // silently hides newer records. (Booleans keep failure output readable.)
+    expect(src.includes('.withIndex("by_organization_code"')).toBe(true);
+    expect(src.includes('RISK_SCAN_BUDGET')).toBe(true);
+    expect(src.includes("RISK_LIST_LIMIT")).toBe(false);
+    expect(src.includes("Page size must be a whole number between")).toBe(true);
+    expect(src.includes("nextCursor")).toBe(true);
+    // The summary distinguishes an exact total from a lower bound.
+    expect(src.includes("exact,")).toBe(true);
+    expect(src.includes("sampled: !exact")).toBe(true);
+    // The UI walks the server's cursors and states filtered coverage honestly.
+    expect(pageSrc.includes("api.risks.listRisks")).toBe(true);
+    expect(pageSrc.includes("nextCursor")).toBe(true);
+    expect(pageSrc.includes("Register pagination")).toBe(true);
+    expect(pageSrc.includes("not been searched yet")).toBe(true);
+    expect(pageSrc.includes("lower bound")).toBe(true);
+  });
 });
 
 // ============================================================================
@@ -280,8 +299,12 @@ describe("Risk register — runtime", () => {
       expect(after.history.some((h) => h.action === "risk.updated")).toBe(true);
 
       // 6. List + summary reflect the new records for authorized readers.
-      const list = (await admin.query(api.risks.listRisks, {})) as Risk[];
-      expect(list.some((r) => r._id === created.riskId)).toBe(true);
+      //    The register is newest-first, so a fresh record is on the first page.
+      const list = (await admin.query(api.risks.listRisks, {})) as {
+        items: Risk[];
+        isDone: boolean;
+      };
+      expect(list.items.some((r) => r._id === created.riskId)).toBe(true);
       const summary = (await admin.query(api.risks.riskSummary, {})) as {
         total: number;
         bands: { critical: number };
@@ -292,8 +315,10 @@ describe("Risk register — runtime", () => {
       // 7. Read-only role: a plain demo member can read but not write.
       const member = await signInAnonymous();
       await member.mutation(api.session.joinDemoOrganization, {});
-      const memberList = (await member.query(api.risks.listRisks, {})) as Risk[];
-      expect(Array.isArray(memberList)).toBe(true);
+      const memberList = (await member.query(api.risks.listRisks, {})) as {
+        items: Risk[];
+      };
+      expect(Array.isArray(memberList.items)).toBe(true);
       await expect(
         member.mutation(api.risks.createRisk, {
           title: "Member attempt risk",
@@ -341,12 +366,15 @@ describe("Risk register — runtime", () => {
       const ids = payloads.map((r) => r.riskId);
       expect(new Set(ids).size).toBe(ids.length);
 
-      const list = (await admin.query(api.risks.listRisks, {})) as Risk[];
+      // The concurrent creations are the newest records, so one page holds them
+      // all; each identifier appears exactly once.
+      const list = (await admin.query(api.risks.listRisks, {
+        numItems: 100,
+      })) as { items: Risk[] };
       for (const id of ids) {
-        expect(list.filter((r) => r._id === id)).toHaveLength(1);
+        expect(list.items.filter((r) => r._id === id)).toHaveLength(1);
       }
-      // No duplicate codes exist in the register at all.
-      const allCodes = list.map((r) => r.code);
+      const allCodes = list.items.map((r) => r.code);
       expect(new Set(allCodes).size).toBe(allCodes.length);
     },
     120000,
