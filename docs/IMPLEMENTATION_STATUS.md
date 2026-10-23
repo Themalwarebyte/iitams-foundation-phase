@@ -251,7 +251,7 @@ when a scan did not cover the whole register, and labels the summary total as
 exact or a lower bound. Full contract and evidence in
 [`RISK_REGISTER.md`](RISK_REGISTER.md).
 
-## Phase 4A — Business Continuity Batch 4.1 *(uncommitted)*
+## Phase 4A — Business Continuity Batch 4.1 *(committed: `b85273f`)*
 
 Business impact analysis and recovery objectives. Full design notes in
 [`BUSINESS_CONTINUITY.md`](BUSINESS_CONTINUITY.md).
@@ -281,15 +281,61 @@ approval and reviewer-attribution runtime cases), `phase1` 15/15 pass,
 `tests/browser.bcm.test.ts` 1/1 pass (strict, real Chromium, two independent
 identities).
 
+## Phase 4A — Business Continuity Batch 4.2 *(committed with this change — `feat(bcm): add continuity plans and recovery strategies`)*
+
+Continuity plans, recovery strategies and recovery gaps. Full design notes in
+[`BUSINESS_CONTINUITY.md`](BUSINESS_CONTINUITY.md).
+
+| Workstream | Status | Evidence |
+| --- | --- | --- |
+| Continuity plans (`BCP-001…`) covering one primary service plus explicit additional services, with purpose, disruption scenarios, recovery priority, scope, exclusions, assumptions and owner | ✅ | `src/convex/continuityPlans.ts`, `/bcm/plans` |
+| The analysis a plan relies on is snapshotted (reference, version, status at link and at approval) so a later BIA revision cannot rewrite an approved baseline | ✅ | `biaSnapshot`, `biaStatusAtApproval` |
+| "No approved baseline" is disclosed, never implied away: a missing or unapproved linked analysis is flagged in the API and the plan header | ✅ | `getPlan.baselineWarning`, browser test |
+| Closed plan lifecycle draft → in review → approved/returned, with revision and terminal archive; only drafts and returned plans are editable | ✅ | `canTransitionPlan`, `submitPlan`, `reviewPlan`, `revisePlan`, `archivePlan` |
+| Independent review — the preparer can never approve their own plan; concurrent approvals cannot both succeed | ✅ | `reviewPlan`, runtime tests |
+| Approved versions are immutable; a revision supersedes the earlier version only on approval, and prior versions stay readable | ✅ | `revisionOf` / `supersededByPlanId`, version history |
+| Recovery strategies (`BRS-001…`) with documented approach, arrangements, manual fallback, requirements, expected effort and target RTO/RPO/MTPD | ✅ | `createStrategy`, `presentStrategy` |
+| Capability evidence is an estimate only — `exercise_verified` is refused until recovery exercises exist | ✅ | `bcmCapabilityEvidenceValidator`, runtime test |
+| Objective-vs-estimate comparison is arithmetic (expected − objective minutes), never a compliance verdict | ✅ | `recoveryCapabilityDelta` |
+| Recovery gaps (`GAP-001…`) with severity, owner, target date, mitigation and a closed status table; resolving or accepting needs a rationale; a strategy never resolves a gap | ✅ | `createGap`, `updateGapStatus`, runtime test |
+| Plan register with server-side search/filters, keyset pagination, status counts and open-gap totals that disclose truncation | ✅ | `listPlans` |
+| Append-only history and per-write audit entries for every plan, strategy and gap transition | ✅ | `appendContinuityEvent`, `bcm.*` audit actions |
+| Frontend: plan register, create/edit form, plan detail with baseline, strategies, gaps, versions and history, submit/review/revision/archive and strategy/gap actions, read-only without `bcm.manage` | ✅ | `src/components/iitams/bcm/BcmPlansPage.tsx`, `BcmPlanForm.tsx`, `BcmPlanDetailPage.tsx` |
+| Tests (structural + runtime + concurrency + cross-tenant + read-only + Chromium journey) | ✅ | `tests/bcmPlans.test.ts` (22), `tests/browser.bcm-plans.test.ts` (1) |
+
+Not in Batch 4.2 (by design): recovery exercises and lessons learned, DR
+runbooks, emergency communications, failover automation, continuity report
+export and any resilience score. A plan is a documented intent; nothing in the
+module presents it as a tested capability.
+
+Verified on the final state (full regression after acceptance):
+`tsc -b --noEmit` exit 0; `eslint` 0 errors (23 pre-existing warnings);
+`bun run build` succeeds and emits the `BcmPlanDetailPage` chunk; the complete
+unit battery passes **479 / 479** across 19 bounded chunks with **2 skipped**
+(explicit skips in `tests/security.adminlifecycle.test.ts`) and **0 failed** —
+`tests/bcm.test.ts` + `tests/bcmPlans.test.ts` are **46/46**, including
+concurrent approval, concurrent reference allocation, cross-tenant and
+read-only runtime cases. All **22 configured Chromium suites pass 37/37**,
+including `tests/browser.bcm-plans.test.ts` (strict, real Chromium, two
+independent identities plus a read-only viewer).
+
+Two pre-existing regression-battery defects were corrected during acceptance
+and committed separately: `tests/risk.test.ts` assumed a fresh risk appears on
+the first register page, but the documented contract after `686880d` orders the
+register by identifier (it now walks the cursor traversal), and the access-review
+pagination walk was bounded at 40 pages of the shared demo organization's
+accumulated history (it now stops once its own fixture cycles are reached).
+
 ## Phase 3 — Recommended next (not started)
 
 1. **User provisioning UI** — admin invites, role assignment, disable
    anonymous sign-in in production deployments.
 2. **Administration UIs** — organizations/MDACs, users, roles, audit-log
    viewer.
-3. **Remaining module workflows** — BCM continuity/DR plans, runbooks and
-   recovery exercises (the register, BIA and recovery objectives are done);
-   the continuity and audit report surfaces are still placeholders.
+3. **Remaining module workflows** — BCM recovery exercises and lessons learned,
+   DR runbooks and recovery automation (the register, BIA, recovery objectives
+   and continuity plans are done); the continuity and audit report surfaces are
+   still placeholders.
 4. **Reporting engine** — scheduled report generation and delivery.
 5. **CI/CD** — GitHub Actions: typecheck, tests, build, dependency audit.
 

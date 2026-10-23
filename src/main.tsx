@@ -149,6 +149,17 @@ const BcmRecoveryPage = lazy(() =>
     default: m.BcmRecoveryPage,
   })),
 );
+// Phase 4A Batch 4.2 — continuity plans and recovery strategies
+const BcmPlansPage = lazy(() =>
+  import("./components/iitams/bcm/BcmPlansPage").then((m) => ({
+    default: m.BcmPlansPage,
+  })),
+);
+const BcmPlanDetailPage = lazy(() =>
+  import("./components/iitams/bcm/BcmPlanDetailPage").then((m) => ({
+    default: m.BcmPlanDetailPage,
+  })),
+);
 const AdminAccessReviewsPage = lazy(() =>
   import("./components/iitams/admin/AdminAccessReviewsPage").then((m) => ({
     default: m.AdminAccessReviewsPage,
@@ -254,9 +265,8 @@ const MODULE_ROUTES = [
   "/cyber/network-assessments",
   "/cyber/application-security",
   "/cyber/configuration-reviews",
-  // Business Continuity (the register, BIA and recovery-objective pages have
-  // dedicated Phase-4A Batch 4.1 routes below)
-  "/bcm/dr-plans",
+  // Business Continuity (the register, BIA, recovery-objective and continuity
+  // plan pages have dedicated Phase-4A routes below)
   "/bcm/dr-tests",
   "/bcm/lessons-learned",
   // Reports & Analytics
@@ -461,6 +471,29 @@ createRoot(document.getElementById("root")!).render(
                     description="Recovery objectives are available to authorized users of your organization."
                   >
                     <BcmRecoveryPage path="/bcm/rto-rpo" />
+                  </RequireAuth>
+                }
+              />
+              {/* Phase 4A Batch 4.2 — continuity plans and recovery strategies */}
+              <Route
+                path="/bcm/plans"
+                element={
+                  <RequireAuth
+                    title="Sign in to open continuity plans"
+                    description="Continuity plans are available to authorized users of your organization."
+                  >
+                    <BcmPlansPage path="/bcm/plans" />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/bcm/plans/:planId"
+                element={
+                  <RequireAuth
+                    title="Sign in to open this continuity plan"
+                    description="Continuity plans are available to authorized users of your organization."
+                  >
+                    <BcmPlanDetailPage path="/bcm/plans" />
                   </RequireAuth>
                 }
               />

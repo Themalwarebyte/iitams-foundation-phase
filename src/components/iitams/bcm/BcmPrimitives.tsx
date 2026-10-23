@@ -8,7 +8,7 @@ import { LockKeyhole, ShieldAlert } from "lucide-react";
 
 /**
  * Shared presentation helpers for Business Continuity Management
- * (Phase 4A — Batch 4.1). Small on purpose: a crash guard, an honest
+ * (Phase 4A — Batches 4.1 and 4.2). Small on purpose: a crash guard, an honest
  * unauthorized state, the status pills and one disclaimer that keeps the
  * module from claiming resilience it has not evidenced.
  */
@@ -75,6 +75,35 @@ const BIA_STATUS_TONES: Record<string, string> = {
   superseded: "bg-info/10 text-info border-info/25",
 };
 
+const PLAN_STATUS_TONES: Record<string, string> = {
+  draft: "bg-muted text-muted-foreground border-border",
+  in_review: "bg-warning/15 text-foreground/90 border-warning/40",
+  approved: "bg-success/10 text-success border-success/25",
+  returned: "bg-warning/20 text-foreground/90 border-warning/45",
+  superseded: "bg-info/10 text-info border-info/25",
+  archived: "bg-muted text-muted-foreground border-border",
+};
+
+const STRATEGY_STATUS_TONES: Record<string, string> = {
+  proposed: "bg-warning/15 text-foreground/90 border-warning/40",
+  adopted: "bg-success/10 text-success border-success/25",
+  retired: "bg-muted text-muted-foreground border-border",
+};
+
+const GAP_SEVERITY_TONES: Record<string, string> = {
+  low: "bg-info/10 text-info border-info/25",
+  medium: "bg-warning/10 text-foreground/90 border-warning/30",
+  high: "bg-warning/20 text-foreground/90 border-warning/45",
+  critical: "bg-critical/10 text-critical border-critical/30",
+};
+
+const GAP_STATUS_TONES: Record<string, string> = {
+  open: "bg-critical/10 text-critical border-critical/30",
+  in_progress: "bg-warning/20 text-foreground/90 border-warning/45",
+  resolved: "bg-success/10 text-success border-success/25",
+  accepted: "bg-info/10 text-info border-info/25",
+};
+
 const IMPACT_TONES: Record<string, string> = {
   none: "bg-muted text-muted-foreground border-border",
   low: "bg-info/10 text-info border-info/25",
@@ -138,6 +167,46 @@ export function BiaStatusPill({
   label: string;
 }) {
   return <Pill label={label} tone={BIA_STATUS_TONES[status]} />;
+}
+
+export function PlanStatusPill({
+  status,
+  label,
+}: {
+  status: string;
+  label: string;
+}) {
+  return <Pill label={label} tone={PLAN_STATUS_TONES[status]} />;
+}
+
+export function StrategyStatusPill({
+  status,
+  label,
+}: {
+  status: string;
+  label: string;
+}) {
+  return <Pill label={label} tone={STRATEGY_STATUS_TONES[status]} />;
+}
+
+export function GapSeverityPill({
+  severity,
+  label,
+}: {
+  severity: string;
+  label: string;
+}) {
+  return <Pill label={label} tone={GAP_SEVERITY_TONES[severity]} />;
+}
+
+export function GapStatusPill({
+  status,
+  label,
+}: {
+  status: string;
+  label: string;
+}) {
+  return <Pill label={label} tone={GAP_STATUS_TONES[status]} />;
 }
 
 export function ImpactSeverityPill({

@@ -27,11 +27,16 @@ import {
 } from "../lib/accessReview";
 import {
   bcmBiaStatusValidator,
+  bcmCapabilityEvidenceValidator,
   bcmCriticalityValidator,
+  bcmGapSeverityValidator,
+  bcmGapStatusValidator,
   bcmImpactsValidator,
+  bcmPlanStatusValidator,
   bcmPriorityValidator,
   bcmReviewDecisionValidator,
   bcmServiceStatusValidator,
+  bcmStrategyStatusValidator,
 } from "../lib/bcm";
 import {
   riskCategoryValidator,
@@ -1767,6 +1772,9 @@ const schema = defineSchema(
       organizationId: v.id("organizations"),
       serviceId: v.optional(v.id("businessServices")),
       biaId: v.optional(v.id("businessImpactAnalyses")),
+      planId: v.optional(v.id("continuityPlans")),
+      strategyId: v.optional(v.id("recoveryStrategies")),
+      gapId: v.optional(v.id("recoveryGaps")),
       type: v.string(),
       fromStatus: v.optional(v.string()),
       toStatus: v.optional(v.string()),
@@ -1779,7 +1787,133 @@ const schema = defineSchema(
       .index("by_organization", ["organizationId"])
       .index("by_organization_service", ["organizationId", "serviceId"])
       .index("by_organization_bia", ["organizationId", "biaId"])
+      .index("by_organization_plan", ["organizationId", "planId"])
       .index("by_organization_created", ["organizationId", "createdAt"]),
+
+    // ------------------------------------------------------------------
+    // BUSINESS CONTINUITY PLANS (Phase 4A — Batch 4.2)
+    // ------------------------------------------------------------------
+    // A plan documents how services would be recovered and which approved
+    // recovery baseline it relies on. It is a controlled, versioned governance
+    // record: approved versions are immutable, and the BIA a version relied on
+    // is snapshotted so later BIA revisions cannot silently rewrite history.
+    continuityPlans: defineTable({
+      organizationId: v.id("organizations"),
+      reference: v.string(), // BCP-001…
+      title: v.string(),
+      purpose: v.string(),
+      // The plan covers one primary service plus explicitly listed additional
+      // services. Membership of the additional list is validated on write, and
+      // every referenced service is re-checked against the caller's org.
+      primaryServiceId: v.id("businessServices"),
+      additionalServiceIds: v.array(v.id("businessServices")),
+      ownerUserId: v.id("users"),
+      ownerLabel: v.string(),
+      // Recovery baseline relied upon. The reference/version/status are
+      // snapshotted at write time, so an approved plan keeps the baseline it
+      // was reviewed against even after the BIA is revised.
+      biaId: v.optional(v.id("businessImpactAnalyses")),
+      biaReference: v.optional(v.string()),
+      biaVersion: v.optional(v.number()),
+      biaStatusAtLink: v.optional(v.string()),
+      biaStatusAtApproval: v.optional(v.string()),
+      disruptionScenarios: v.string(),
+      recoveryPriority: bcmPriorityValidator,
+      scope: v.string(),
+      exclusions: v.string(),
+      assumptions: v.string(),
+      reviewDueAt: v.number(),
+      status: bcmPlanStatusValidator,
+      version: v.number(),
+      revisionOf: v.optional(v.id("continuityPlans")),
+      supersededByPlanId: v.optional(v.id("continuityPlans")),
+      preparedByUserId: v.id("users"),
+      preparedByLabel: v.string(),
+      preparedAt: v.number(),
+      submittedAt: v.optional(v.number()),
+      submittedByUserId: v.optional(v.id("users")),
+      submittedByLabel: v.optional(v.string()),
+      reviewedAt: v.optional(v.number()),
+      reviewedByUserId: v.optional(v.id("users")),
+      reviewedByLabel: v.optional(v.string()),
+      reviewDecision: v.optional(bcmReviewDecisionValidator),
+      reviewNotes: v.optional(v.string()),
+      approvedAt: v.optional(v.number()),
+      archivedAt: v.optional(v.number()),
+      archivedByUserId: v.optional(v.id("users")),
+      archivedByLabel: v.optional(v.string()),
+      archiveReason: v.optional(v.string()),
+      isDemo: v.optional(v.boolean()),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_created", ["organizationId", "createdAt"])
+      .index("by_organization_status", ["organizationId", "status"])
+      .index("by_organization_reference", ["organizationId", "reference"])
+      .index("by_organization_service", ["organizationId", "primaryServiceId"])
+      .index("by_organization_review_due", ["organizationId", "reviewDueAt"]),
+
+    // Documented recovery strategies for a plan. `capabilityEvidence` is
+    // constrained server-side to a documented estimate until recovery
+    // exercises exist, so an estimate can never be shown as verified.
+    recoveryStrategies: defineTable({
+      organizationId: v.id("organizations"),
+      planId: v.id("continuityPlans"),
+      reference: v.string(), // BRS-001…
+      title: v.string(),
+      objective: v.string(),
+      disruptionScenario: v.string(),
+      recoveryApproach: v.string(),
+      alternativeArrangements: v.optional(v.string()),
+      manualFallback: v.optional(v.string()),
+      personnelRequirements: v.string(),
+      ictDependencies: v.optional(v.string()),
+      vendorDependencies: v.optional(v.string()),
+      facilitiesRequirements: v.optional(v.string()),
+      minimumServiceLevel: v.string(),
+      expectedRecoveryMinutes: v.optional(v.number()),
+      targetRtoMinutes: v.optional(v.number()),
+      targetRpoMinutes: v.optional(v.number()),
+      targetMtpdMinutes: v.optional(v.number()),
+      capabilityEvidence: bcmCapabilityEvidenceValidator,
+      capabilityRationale: v.string(),
+      ownerUserId: v.id("users"),
+      ownerLabel: v.string(),
+      status: bcmStrategyStatusValidator,
+      statusRationale: v.string(),
+      isDemo: v.optional(v.boolean()),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_plan", ["organizationId", "planId"])
+      .index("by_organization_reference", ["organizationId", "reference"]),
+
+    // Structured gaps between the approved objectives and the documented
+    // recovery capability. Recording a strategy never resolves a gap: the gap
+    // has its own owner, target date and transition history.
+    recoveryGaps: defineTable({
+      organizationId: v.id("organizations"),
+      planId: v.id("continuityPlans"),
+      strategyId: v.optional(v.id("recoveryStrategies")),
+      reference: v.string(), // GAP-001…
+      description: v.string(),
+      severity: bcmGapSeverityValidator,
+      ownerUserId: v.id("users"),
+      ownerLabel: v.string(),
+      targetResolutionDate: v.number(),
+      mitigationRecommendation: v.string(),
+      status: bcmGapStatusValidator,
+      statusRationale: v.optional(v.string()),
+      resolvedAt: v.optional(v.number()),
+      resolvedByUserId: v.optional(v.id("users")),
+      resolvedByLabel: v.optional(v.string()),
+      isDemo: v.optional(v.boolean()),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_plan", ["organizationId", "planId"])
+      .index("by_organization_status", ["organizationId", "status"])
+      .index("by_organization_reference", ["organizationId", "reference"]),
 
     // ------------------------------------------------------------------
     // REPORTING & ANALYTICS — pre-aggregated time series

@@ -186,6 +186,42 @@ export async function requireOwnedBia(
   return row;
 }
 
+export async function requireOwnedPlan(
+  ctx: QueryCtx | MutationCtx,
+  organizationId: Id<"organizations">,
+  planId: Id<"continuityPlans">,
+): Promise<Doc<"continuityPlans">> {
+  const row = await ctx.db.get(planId);
+  if (!row || row.organizationId !== organizationId) {
+    throw new Error("Continuity plan not found in your organization");
+  }
+  return row;
+}
+
+export async function requireOwnedStrategy(
+  ctx: QueryCtx | MutationCtx,
+  organizationId: Id<"organizations">,
+  strategyId: Id<"recoveryStrategies">,
+): Promise<Doc<"recoveryStrategies">> {
+  const row = await ctx.db.get(strategyId);
+  if (!row || row.organizationId !== organizationId) {
+    throw new Error("Recovery strategy not found in your organization");
+  }
+  return row;
+}
+
+export async function requireOwnedGap(
+  ctx: QueryCtx | MutationCtx,
+  organizationId: Id<"organizations">,
+  gapId: Id<"recoveryGaps">,
+): Promise<Doc<"recoveryGaps">> {
+  const row = await ctx.db.get(gapId);
+  if (!row || row.organizationId !== organizationId) {
+    throw new Error("Recovery gap not found in your organization");
+  }
+  return row;
+}
+
 /**
  * Per-organization reference sequence (BS-001, BIA-001).
  *
@@ -197,7 +233,12 @@ export async function requireOwnedBia(
  */
 export async function nextBcmReference(
   ctx: MutationCtx,
-  table: "businessServices" | "businessImpactAnalyses",
+  table:
+    | "businessServices"
+    | "businessImpactAnalyses"
+    | "continuityPlans"
+    | "recoveryStrategies"
+    | "recoveryGaps",
   organizationId: Id<"organizations">,
   prefix: string,
 ): Promise<string> {
@@ -246,6 +287,9 @@ export async function appendContinuityEvent(
     organizationId: Id<"organizations">;
     serviceId?: Id<"businessServices">;
     biaId?: Id<"businessImpactAnalyses">;
+    planId?: Id<"continuityPlans">;
+    strategyId?: Id<"recoveryStrategies">;
+    gapId?: Id<"recoveryGaps">;
     type: string;
     fromStatus?: string;
     toStatus?: string;
@@ -259,6 +303,9 @@ export async function appendContinuityEvent(
     organizationId: input.organizationId,
     serviceId: input.serviceId,
     biaId: input.biaId,
+    planId: input.planId,
+    strategyId: input.strategyId,
+    gapId: input.gapId,
     type: input.type,
     fromStatus: input.fromStatus,
     toStatus: input.toStatus,

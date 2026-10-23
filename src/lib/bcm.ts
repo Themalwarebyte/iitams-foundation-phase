@@ -14,6 +14,8 @@ export const BCM_TITLE_MAX = 200;
 export const BCM_REFERENCE_MAX = 40;
 export const BCM_TEXT_MAX = 4000;
 export const BCM_NARRATIVE_MIN = 20;
+/** A plan names one primary service plus up to this many additional services. */
+export const BCM_MAX_ADDITIONAL_SERVICES = 10;
 export const BCM_OWNER_LABEL_MAX = 160;
 export const BCM_DEPARTMENT_MAX = 160;
 
@@ -290,6 +292,182 @@ export function formatMinutes(minutes: number | undefined | null): string {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   return `${hours}h ${rest}m`;
+}
+
+// ---------------------------------------------------------------------------
+// Continuity plans, recovery strategies and recovery gaps (Batch 4.2)
+// ---------------------------------------------------------------------------
+// A plan documents HOW a service would be recovered. It never asserts that the
+// service WILL be recovered, and a strategy's capability is an ESTIMATE until a
+// recovery exercise (a later milestone) evidences otherwise.
+
+export const BCM_PLAN_STATUSES = [
+  "draft",
+  "in_review",
+  "approved",
+  "returned",
+  "superseded",
+  "archived",
+] as const;
+export type BcmPlanStatus = (typeof BCM_PLAN_STATUSES)[number];
+
+export const BCM_PLAN_STATUS_LABELS: Record<BcmPlanStatus, string> = {
+  draft: "Draft",
+  in_review: "Submitted for review",
+  approved: "Approved",
+  returned: "Returned for revision",
+  superseded: "Superseded",
+  archived: "Archived",
+};
+
+/** Closed lifecycle: archived and superseded rows are history, never editable. */
+export const BCM_PLAN_TRANSITIONS: Record<BcmPlanStatus, BcmPlanStatus[]> = {
+  draft: ["in_review"],
+  in_review: ["approved", "returned"],
+  returned: ["in_review"],
+  approved: ["superseded", "archived"],
+  superseded: ["archived"],
+  archived: [],
+};
+
+export function canTransitionPlan(
+  from: BcmPlanStatus,
+  to: BcmPlanStatus,
+): boolean {
+  return BCM_PLAN_TRANSITIONS[from]?.includes(to) ?? false;
+}
+
+/** Statuses whose content may still be edited (approved is frozen). */
+export const BCM_PLAN_EDITABLE_STATUSES: readonly BcmPlanStatus[] = [
+  "draft",
+  "returned",
+];
+
+export function planIsEditable(status: BcmPlanStatus): boolean {
+  return BCM_PLAN_EDITABLE_STATUSES.includes(status);
+}
+
+export const BCM_STRATEGY_STATUSES = ["proposed", "adopted", "retired"] as const;
+export type BcmStrategyStatus = (typeof BCM_STRATEGY_STATUSES)[number];
+
+export const BCM_STRATEGY_STATUS_LABELS: Record<BcmStrategyStatus, string> = {
+  proposed: "Proposed",
+  adopted: "Adopted",
+  retired: "Retired",
+};
+
+export const BCM_STRATEGY_TRANSITIONS: Record<
+  BcmStrategyStatus,
+  BcmStrategyStatus[]
+> = {
+  proposed: ["adopted", "retired"],
+  adopted: ["retired"],
+  retired: [],
+};
+
+export function canTransitionStrategy(
+  from: BcmStrategyStatus,
+  to: BcmStrategyStatus,
+): boolean {
+  return BCM_STRATEGY_TRANSITIONS[from]?.includes(to) ?? false;
+}
+
+/**
+ * How a strategy's expected recovery capability is known.
+ *
+ * `exercise_verified` exists in the vocabulary because a recovery exercise is a
+ * later milestone; until then the server refuses it, so a documented estimate
+ * can never be displayed as a verified capability.
+ */
+export const BCM_CAPABILITY_EVIDENCE = ["estimate", "exercise_verified"] as const;
+export type BcmCapabilityEvidence = (typeof BCM_CAPABILITY_EVIDENCE)[number];
+
+export const BCM_CAPABILITY_EVIDENCE_LABELS: Record<
+  BcmCapabilityEvidence,
+  string
+> = {
+  estimate: "Documented estimate — not validated by an exercise",
+  exercise_verified: "Verified by a recovery exercise",
+};
+
+export const BCM_GAP_SEVERITIES = ["low", "medium", "high", "critical"] as const;
+export type BcmGapSeverity = (typeof BCM_GAP_SEVERITIES)[number];
+
+export const BCM_GAP_SEVERITY_LABELS: Record<BcmGapSeverity, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  critical: "Critical",
+};
+
+export const BCM_GAP_STATUSES = [
+  "open",
+  "in_progress",
+  "resolved",
+  "accepted",
+] as const;
+export type BcmGapStatus = (typeof BCM_GAP_STATUSES)[number];
+
+export const BCM_GAP_STATUS_LABELS: Record<BcmGapStatus, string> = {
+  open: "Open",
+  in_progress: "Mitigation in progress",
+  resolved: "Resolved",
+  accepted: "Accepted (risk acknowledged)",
+};
+
+export const BCM_GAP_TRANSITIONS: Record<BcmGapStatus, BcmGapStatus[]> = {
+  open: ["in_progress", "resolved", "accepted"],
+  in_progress: ["resolved", "accepted"],
+  resolved: [],
+  accepted: [],
+};
+
+export function canTransitionGap(
+  from: BcmGapStatus,
+  to: BcmGapStatus,
+): boolean {
+  return BCM_GAP_TRANSITIONS[from]?.includes(to) ?? false;
+}
+
+/** A recovery gap can never be created already resolved/accepted. */
+export const BCM_GAP_OPEN_STATUSES: readonly BcmGapStatus[] = [
+  "open",
+  "in_progress",
+];
+
+export const bcmPlanStatusValidator = v.union(
+  ...BCM_PLAN_STATUSES.map((status) => v.literal(status)),
+);
+export const bcmStrategyStatusValidator = v.union(
+  ...BCM_STRATEGY_STATUSES.map((status) => v.literal(status)),
+);
+export const bcmCapabilityEvidenceValidator = v.union(
+  ...BCM_CAPABILITY_EVIDENCE.map((evidence) => v.literal(evidence)),
+);
+export const bcmGapSeverityValidator = v.union(
+  ...BCM_GAP_SEVERITIES.map((severity) => v.literal(severity)),
+);
+export const bcmGapStatusValidator = v.union(
+  ...BCM_GAP_STATUSES.map((status) => v.literal(status)),
+);
+
+/**
+ * Arithmetic comparison between a documented objective and an ESTIMATED
+ * recovery capability.
+ *
+ * This is deliberately a difference, not a verdict: a positive delta means the
+ * estimate is longer than the objective, which is worth recording as a gap. It
+ * is never evidence that a strategy WOULD meet (or would miss) the objective,
+ * because nothing here has been exercised.
+ */
+export function recoveryCapabilityDelta(input: {
+  objectiveMinutes?: number;
+  expectedMinutes?: number;
+}): number | undefined {
+  if (input.objectiveMinutes === undefined || input.expectedMinutes === undefined) {
+    return undefined;
+  }
+  return input.expectedMinutes - input.objectiveMinutes;
 }
 
 /** The highest recorded impact severity for a BIA (display only). */
