@@ -74,6 +74,26 @@ async function adminClient(): Promise<ConvexHttpClient | null> {
   return admin;
 }
 
+/**
+ * Walks the whole register through its cursors. The register is ordered by
+ * identifier, so a record created after the seeded ones sits at the end of the
+ * traversal rather than on page one — asserting visibility must page to it.
+ */
+async function walkRegister(client: ConvexHttpClient): Promise<Risk[]> {
+  const rows: Risk[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < 200; page += 1) {
+    const result = (await client.query(api.risks.listRisks, {
+      numItems: 100,
+      ...(cursor ? { cursor } : {}),
+    })) as { items: Risk[]; nextCursor: string | null; isDone: boolean };
+    rows.push(...result.items);
+    if (result.isDone || !result.nextCursor) return rows;
+    cursor = result.nextCursor;
+  }
+  throw new Error("register traversal did not terminate");
+}
+
 const uniq = () => `${Date.now()}-${Math.floor(Math.random() * 99999)}`;
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -298,13 +318,11 @@ describe("Risk register — runtime", () => {
       expect(after.status).toBe("mitigating");
       expect(after.history.some((h) => h.action === "risk.updated")).toBe(true);
 
-      // 6. List + summary reflect the new records for authorized readers.
-      //    The register is newest-first, so a fresh record is on the first page.
-      const list = (await admin.query(api.risks.listRisks, {})) as {
-        items: Risk[];
-        isDone: boolean;
-      };
-      expect(list.items.some((r) => r._id === created.riskId)).toBe(true);
+      // 6. List + summary reflect the new records for authorized readers. The
+      //    register is ordered by identifier, so the new record is reached by
+      //    walking the traversal rather than by assuming it is on page one.
+      const list = await walkRegister(admin);
+      expect(list.some((r) => r._id === created.riskId)).toBe(true);
       const summary = (await admin.query(api.risks.riskSummary, {})) as {
         total: number;
         bands: { critical: number };
@@ -366,15 +384,14 @@ describe("Risk register — runtime", () => {
       const ids = payloads.map((r) => r.riskId);
       expect(new Set(ids).size).toBe(ids.length);
 
-      // The concurrent creations are the newest records, so one page holds them
-      // all; each identifier appears exactly once.
-      const list = (await admin.query(api.risks.listRisks, {
-        numItems: 100,
-      })) as { items: Risk[] };
+      // Register order is by identifier, so the concurrent creations sort after
+      // the seeded records; walk the traversal and confirm each appears exactly
+      // once with a unique code.
+      const list = await walkRegister(admin);
       for (const id of ids) {
-        expect(list.items.filter((r) => r._id === id)).toHaveLength(1);
+        expect(list.filter((r) => r._id === id)).toHaveLength(1);
       }
-      const allCodes = list.items.map((r) => r.code);
+      const allCodes = list.map((r) => r.code);
       expect(new Set(allCodes).size).toBe(allCodes.length);
     },
     120000,

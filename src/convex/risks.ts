@@ -200,7 +200,9 @@ function matchesRiskFilters(risk: Doc<"risks">, filters: RiskFilters): boolean {
 }
 
 /**
- * One page of the organization's register, newest first, with optional filters.
+ * One page of the organization's register, ordered by identifier, with optional
+ * filters. A new record therefore sorts at the end of the traversal, not on the
+ * first page.
  *
  * Every call re-resolves `risk.view` and the organization from the caller's
  * access context, so a page can never be read across tenants or by a role

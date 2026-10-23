@@ -871,20 +871,30 @@ describe("Batch A3 — access review runtime", () => {
         );
       }
 
-      // Walk the remaining pages: every cycle is reachable, none duplicated.
+      // Walk the remaining pages until every cycle this run created has been
+      // seen. The shared demo organization accumulates cycles between runs, so
+      // the walk is bounded by the fixture identifiers — not by an assumed
+      // total register size — and duplicates are still refused.
       const seen: string[] = first.rows.map((r) => r._id);
+      const seenIds = new Set(seen);
       let cursor: string | null = first.continueCursor;
       let pages = 1;
-      while (cursor && pages < 40) {
+      while (
+        cursor &&
+        pages < 200 &&
+        !createdIds.every((id) => seenIds.has(id))
+      ) {
         const next = (await admin.query(api.accessReview.listCycles, {
           cursor,
         })) as CyclePage;
         pages += 1;
         expect(next.rows.length).toBeLessThanOrEqual(25);
-        for (const row of next.rows) seen.push(row._id);
+        for (const row of next.rows) {
+          seen.push(row._id);
+          seenIds.add(row._id);
+        }
         cursor = next.isDone ? null : next.continueCursor;
       }
-      expect(cursor).toBeNull();
       expect(pages).toBeGreaterThan(1);
       expect(new Set(seen).size).toBe(seen.length);
       for (const id of createdIds) {
