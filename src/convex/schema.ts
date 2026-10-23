@@ -26,6 +26,14 @@ import {
   accessReviewRemediationStatusValidator,
 } from "../lib/accessReview";
 import {
+  bcmBiaStatusValidator,
+  bcmCriticalityValidator,
+  bcmImpactsValidator,
+  bcmPriorityValidator,
+  bcmReviewDecisionValidator,
+  bcmServiceStatusValidator,
+} from "../lib/bcm";
+import {
   riskCategoryValidator,
   riskStatusValidator,
   treatmentStatusValidator,
@@ -1661,6 +1669,117 @@ const schema = defineSchema(
     })
       .index("by_organization", ["organizationId"])
       .index("by_status", ["organizationId", "status"]),
+
+    // Phase 4A Batch 4.1 — governed continuity register. The `criticalServices`
+    // table above is a seeded dashboard demo fixture carrying a pre-computed
+    // readiness score; it is not a governance record, so it is left untouched
+    // and no fabricated score is copied into this register.
+    businessServices: defineTable({
+      organizationId: v.id("organizations"),
+      reference: v.string(),
+      name: v.string(),
+      description: v.string(),
+      department: v.string(),
+      ownerUserId: v.id("users"),
+      ownerLabel: v.string(),
+      operationalStatus: bcmServiceStatusValidator,
+      criticality: bcmCriticalityValidator,
+      // Optional descriptive ICT dependencies: there is no ICT asset register
+      // yet, so these are clearly identified free-text dependencies, not
+      // invented foreign keys.
+      ictDependencies: v.optional(v.string()),
+      keyDependencies: v.string(),
+      singlePointsOfFailure: v.optional(v.string()),
+      isDemo: v.optional(v.boolean()),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_created", ["organizationId", "createdAt"])
+      .index("by_organization_status", ["organizationId", "operationalStatus"])
+      .index("by_organization_criticality", ["organizationId", "criticality"])
+      .index("by_organization_reference", ["organizationId", "reference"]),
+
+    businessImpactAnalyses: defineTable({
+      organizationId: v.id("organizations"),
+      serviceId: v.id("businessServices"),
+      reference: v.string(),
+      title: v.string(),
+      version: v.number(),
+      revisionOf: v.optional(v.id("businessImpactAnalyses")),
+      supersededByBiaId: v.optional(v.id("businessImpactAnalyses")),
+      ownerUserId: v.id("users"),
+      ownerLabel: v.string(),
+      assessmentDate: v.number(),
+      reviewDueAt: v.number(),
+      disruptionScenario: v.string(),
+      scope: v.optional(v.string()),
+      // One severity + rationale per impact category. Severity is a recorded
+      // judgement, never a magnitude the system invents.
+      impacts: bcmImpactsValidator,
+      keyDependencies: v.optional(v.string()),
+      singlePointsOfFailure: v.optional(v.string()),
+      existingRecoveryArrangements: v.optional(v.string()),
+      assumptions: v.string(),
+      limitations: v.string(),
+      criticalityRationale: v.string(),
+      // Normalized recovery objectives (minutes).
+      rtoMinutes: v.number(),
+      rpoMinutes: v.optional(v.number()),
+      mtpdMinutes: v.optional(v.number()),
+      minimumServiceLevel: v.string(),
+      recoveryPriority: bcmPriorityValidator,
+      objectiveRationale: v.string(),
+      mtpdExceptionJustification: v.optional(v.string()),
+      status: bcmBiaStatusValidator,
+      preparedByUserId: v.id("users"),
+      preparedByLabel: v.string(),
+      preparedAt: v.number(),
+      submittedAt: v.optional(v.number()),
+      submittedByUserId: v.optional(v.id("users")),
+      submittedByLabel: v.optional(v.string()),
+      reviewedAt: v.optional(v.number()),
+      reviewedByUserId: v.optional(v.id("users")),
+      reviewedByLabel: v.optional(v.string()),
+      reviewDecision: v.optional(bcmReviewDecisionValidator),
+      reviewNotes: v.optional(v.string()),
+      approvedAt: v.optional(v.number()),
+      isDemo: v.optional(v.boolean()),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_created", ["organizationId", "createdAt"])
+      .index("by_organization_service", ["organizationId", "serviceId"])
+      .index("by_organization_status", ["organizationId", "status"])
+      .index("by_organization_reference", ["organizationId", "reference"])
+      .index("by_organization_review_due", ["organizationId", "reviewDueAt"]),
+
+    // Per-organization reference counter. A counter row is patched inside the
+    // creating mutation, so two concurrent registrations conflict on the same
+    // document and Convex retries one of them — references cannot collide.
+    bcmReferenceCounters: defineTable({
+      organizationId: v.id("organizations"),
+      prefix: v.string(),
+      value: v.number(),
+    }).index("by_organization_prefix", ["organizationId", "prefix"]),
+
+    // Append-only continuity history: every transition keeps its actor.
+    continuityEvents: defineTable({
+      organizationId: v.id("organizations"),
+      serviceId: v.optional(v.id("businessServices")),
+      biaId: v.optional(v.id("businessImpactAnalyses")),
+      type: v.string(),
+      fromStatus: v.optional(v.string()),
+      toStatus: v.optional(v.string()),
+      actorUserId: v.id("users"),
+      actorLabel: v.string(),
+      summary: v.string(),
+      reason: v.optional(v.string()),
+      createdAt: v.number(),
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_service", ["organizationId", "serviceId"])
+      .index("by_organization_bia", ["organizationId", "biaId"])
+      .index("by_organization_created", ["organizationId", "createdAt"]),
 
     // ------------------------------------------------------------------
     // REPORTING & ANALYTICS — pre-aggregated time series

@@ -241,14 +241,55 @@ the report and its exports as lower bounds, never as exact totals.
 Not in Batch 3 (by design): a server-rendered PDF binary, scheduled delivery,
 security scoring, scanners and Business Continuity.
 
+## Phase 3B — Risk register pagination correction *(committed, `686880d`)*
+
+The register previously read a fixed 500-row window, so risks created after
+that point were unreachable and the KPI strip reported the window as a
+total. It now traverses the unique organization/code index with a validated
+keyset cursor, applies search and filters server-side while walking, discloses
+when a scan did not cover the whole register, and labels the summary total as
+exact or a lower bound. Full contract and evidence in
+[`RISK_REGISTER.md`](RISK_REGISTER.md).
+
+## Phase 4A — Business Continuity Batch 4.1 *(uncommitted)*
+
+Business impact analysis and recovery objectives. Full design notes in
+[`BUSINESS_CONTINUITY.md`](BUSINESS_CONTINUITY.md).
+
+| Workstream | Status | Evidence |
+| --- | --- | --- |
+| Business service / process register (`BS-001…`): name, description, department, owner, operational status, criticality, ICT/key dependencies, single points of failure | ✅ | `src/convex/businessServices.ts`, `/bcm/critical-services` |
+| Business impact analyses (`BIA-001…`) with explicit per-category impact judgement (operational, financial, regulatory, reputational, customer) and a rationale for every category | ✅ | `src/convex/businessImpactAnalyses.ts`, `src/lib/bcm.ts` |
+| Normalized recovery objectives stored in whole minutes — RTO required, RPO/MTPD optional and validated independently; an RTO beyond the MTPD needs a documented exception | ✅ | `validateRecoveryObjectives`, `tests/bcm.test.ts` |
+| BIA lifecycle draft → in review → approved, with rejection returning to draft; only drafts are editable | ✅ | `submitBia`, `reviewBia`, `canTransitionBia` |
+| Independent review — the preparer can never approve their own analysis | ✅ | `reviewBia`, runtime test |
+| Approved analyses are immutable; corrections are numbered revisions that supersede only on approval, and earlier versions stay readable | ✅ | `reviseBia`, `revisionOf` / `supersededByBiaId` |
+| Append-only continuity history (`continuityEvents`) and per-write audit entries | ✅ | `appendBiaEvent`, `bcm.*` audit actions |
+| Authorization: `bcm.view` reads, `bcm.manage` + active membership writes, server-derived organization, every id re-validated, cross-tenant refusal | ✅ | `resolveBcmAccess` |
+| Truthful summaries: service/BIA counts, coverage (approved / open / missing), overdue reassessment — no readiness, maturity or resilience score | ✅ | `continuitySummary`, `recoveryObjectives` |
+| Frontend: service register and detail, BIA register with impact matrix and objectives, submit/review/revision controls, recovery-objective page, read-only without `bcm.manage` | ✅ | `src/components/iitams/bcm/*` |
+| Tests (structural + runtime + concurrency + cross-tenant + read-only + attribution + Chromium journey) | ✅ | `tests/bcm.test.ts` (24), `tests/browser.bcm.test.ts` (1) |
+
+Not in Batch 4.1 (by design): continuity/DR plan authoring, runbooks,
+recovery exercises, emergency communications, failover automation, continuity
+report export and any resilience score. A recorded BIA is never presented as a
+tested plan.
+
+Verified on the final state: `tsc -b --noEmit` exit 0, `lint` exit 0 (21
+pre-existing warnings), `tests/bcm.test.ts` 24/24 pass (including concurrent
+approval and reviewer-attribution runtime cases), `phase1` 15/15 pass,
+`tests/browser.bcm.test.ts` 1/1 pass (strict, real Chromium, two independent
+identities).
+
 ## Phase 3 — Recommended next (not started)
 
 1. **User provisioning UI** — admin invites, role assignment, disable
    anonymous sign-in in production deployments.
 2. **Administration UIs** — organizations/MDACs, users, roles, audit-log
    viewer.
-3. **Remaining module workflows** — risk/compliance/cyber/BCM record CRUD UIs
-   on the Phase-1 schema (foundation already in place).
+3. **Remaining module workflows** — BCM continuity/DR plans, runbooks and
+   recovery exercises (the register, BIA and recovery objectives are done);
+   the continuity and audit report surfaces are still placeholders.
 4. **Reporting engine** — scheduled report generation and delivery.
 5. **CI/CD** — GitHub Actions: typecheck, tests, build, dependency audit.
 

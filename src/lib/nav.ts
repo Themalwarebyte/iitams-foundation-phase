@@ -128,7 +128,7 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: Activity,
     items: [
       { label: "Critical Services", path: "/bcm/critical-services", icon: Building2, permission: "bcm" },
-      { label: "Business Impact Analysis", path: "/bcm/bia", icon: BarChart3, permission: "bcm", phase2: true },
+      { label: "Business Impact Analysis", path: "/bcm/bia", icon: BarChart3, permission: "bcm" },
       { label: "RTO / RPO", path: "/bcm/rto-rpo", icon: Fingerprint, permission: "bcm" },
       { label: "DR Plans", path: "/bcm/dr-plans", icon: FileText, permission: "bcm", phase2: true },
       { label: "DR Tests & Exercises", path: "/bcm/dr-tests", icon: TestTube2, permission: "bcm" },

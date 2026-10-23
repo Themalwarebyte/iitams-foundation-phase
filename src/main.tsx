@@ -133,6 +133,22 @@ const CyberReportsPage = lazy(
 const CyberVulnerabilitiesPage = lazy(
   () => import("./components/iitams/cyber/CyberVulnerabilitiesPage"),
 );
+// Phase 4A Batch 4.1 — Business Continuity Management
+const BcmServicesPage = lazy(() =>
+  import("./components/iitams/bcm/BcmServicesPage").then((m) => ({
+    default: m.BcmServicesPage,
+  })),
+);
+const BcmBiaPage = lazy(() =>
+  import("./components/iitams/bcm/BcmBiaPage").then((m) => ({
+    default: m.BcmBiaPage,
+  })),
+);
+const BcmRecoveryPage = lazy(() =>
+  import("./components/iitams/bcm/BcmRecoveryPage").then((m) => ({
+    default: m.BcmRecoveryPage,
+  })),
+);
 const AdminAccessReviewsPage = lazy(() =>
   import("./components/iitams/admin/AdminAccessReviewsPage").then((m) => ({
     default: m.AdminAccessReviewsPage,
@@ -238,10 +254,8 @@ const MODULE_ROUTES = [
   "/cyber/network-assessments",
   "/cyber/application-security",
   "/cyber/configuration-reviews",
-  // Business Continuity
-  "/bcm/critical-services",
-  "/bcm/bia",
-  "/bcm/rto-rpo",
+  // Business Continuity (the register, BIA and recovery-objective pages have
+  // dedicated Phase-4A Batch 4.1 routes below)
   "/bcm/dr-plans",
   "/bcm/dr-tests",
   "/bcm/lessons-learned",
@@ -413,6 +427,40 @@ createRoot(document.getElementById("root")!).render(
                     description="Security testing assurance reports are available to authorized users of your organization."
                   >
                     <CyberReportsPage path="/reports/cybersecurity" />
+                  </RequireAuth>
+                }
+              />
+              {/* Phase 4A Batch 4.1 — Business Continuity Management */}
+              <Route
+                path="/bcm/critical-services"
+                element={
+                  <RequireAuth
+                    title="Sign in to open the continuity register"
+                    description="The business service register is available to authorized users of your organization."
+                  >
+                    <BcmServicesPage path="/bcm/critical-services" />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/bcm/bia"
+                element={
+                  <RequireAuth
+                    title="Sign in to open business impact analyses"
+                    description="Business impact analyses are available to authorized users of your organization."
+                  >
+                    <BcmBiaPage path="/bcm/bia" />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/bcm/rto-rpo"
+                element={
+                  <RequireAuth
+                    title="Sign in to open recovery objectives"
+                    description="Recovery objectives are available to authorized users of your organization."
+                  >
+                    <BcmRecoveryPage path="/bcm/rto-rpo" />
                   </RequireAuth>
                 }
               />
