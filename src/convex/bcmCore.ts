@@ -238,7 +238,9 @@ export async function nextBcmReference(
     | "businessImpactAnalyses"
     | "continuityPlans"
     | "recoveryStrategies"
-    | "recoveryGaps",
+    | "recoveryGaps"
+    | "recoveryExercises"
+    | "recoveryExerciseFindings",
   organizationId: Id<"organizations">,
   prefix: string,
 ): Promise<string> {
@@ -290,6 +292,8 @@ export async function appendContinuityEvent(
     planId?: Id<"continuityPlans">;
     strategyId?: Id<"recoveryStrategies">;
     gapId?: Id<"recoveryGaps">;
+    exerciseId?: Id<"recoveryExercises">;
+    findingId?: Id<"recoveryExerciseFindings">;
     type: string;
     fromStatus?: string;
     toStatus?: string;
@@ -306,6 +310,8 @@ export async function appendContinuityEvent(
     planId: input.planId,
     strategyId: input.strategyId,
     gapId: input.gapId,
+    exerciseId: input.exerciseId,
+    findingId: input.findingId,
     type: input.type,
     fromStatus: input.fromStatus,
     toStatus: input.toStatus,

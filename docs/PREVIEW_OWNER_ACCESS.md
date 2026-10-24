@@ -43,14 +43,15 @@ Convex **cloud development** deployment (deployment-scoped `CONVEX_DEPLOY_KEY`,
 session. Tester-token-gated harness routes (`/api/dev-*`) are the only dev
 surface that should ever be reachable, and they refuse without the token.
 
-## Current readiness (verified 2026-10-20)
+## Current readiness (re-verified 2026-10-23)
 
 | Requirement | State | Evidence |
 | --- | --- | --- |
-| Preview reachable | ✅ | `https://5173-<workspace>.e2b.app` → 200 |
+| Preview reachable | ✅ | `https://5173-ifhlomybo9ax8jfk8rh2b.e2b.app` → 200; `/auth` → 200 |
 | Backend reachable from outside the sandbox | ✅ | Convex cloud port `/version` → 200 (public fork — residual risk below) |
 | Dev harness routes refuse without the tester token | ✅ | `POST /api/dev-otp`, `/api/dev-seed-test-user`, `/api/dev-grant-demo-role` all → **403** `{"error":"unauthorized"}` |
-| Email OTP delivery | ❌ not configured | deployment has no `IITAMS_EMAIL_PROVIDER` and no `RESEND_API_KEY`; the backend logs `[iitams:otp] no email provider configured` and no message is sent |
+| Served client points at the public backend | ✅ | `https://3210-ifhlomybo9ax8jfk8rh2b.e2b.app` / `https://3211-ifhlomybo9ax8jfk8rh2b.e2b.app` in the served `src/main.tsx` (no loopback URL) |
+| Email OTP delivery | ❌ not configured | deployment env has no `IITAMS_EMAIL_PROVIDER`, `RESEND_API_KEY` or `RESEND_FROM`; the backend logs `[iitams:otp] no email provider configured` and no message is sent |
 | Isolated cloud development deployment | ❌ not provisioned | `CONVEX_DEPLOYMENT` targets the sandbox's local backend; no Convex account credential is authorised here (`npx convex dev` cannot mint a cloud dev deployment without interactive login) |
 | Owner login email | ❌ not supplied | the owner has not yet provided a confirmed address, so no account can be created or verified |
 

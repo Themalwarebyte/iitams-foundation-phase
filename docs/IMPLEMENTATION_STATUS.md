@@ -281,7 +281,7 @@ approval and reviewer-attribution runtime cases), `phase1` 15/15 pass,
 `tests/browser.bcm.test.ts` 1/1 pass (strict, real Chromium, two independent
 identities).
 
-## Phase 4A — Business Continuity Batch 4.2 *(committed with this change — `feat(bcm): add continuity plans and recovery strategies`)*
+## Phase 4A — Business Continuity Batch 4.2 *(committed: `9b1bfb6` — `feat(bcm): add continuity plans and recovery strategies`)*
 
 Continuity plans, recovery strategies and recovery gaps. Full design notes in
 [`BUSINESS_CONTINUITY.md`](BUSINESS_CONTINUITY.md).
@@ -325,6 +325,43 @@ the first register page, but the documented contract after `686880d` orders the
 register by identifier (it now walks the cursor traversal), and the access-review
 pagination walk was bounded at 40 pages of the shared demo organization's
 accumulated history (it now stops once its own fixture cycles are reached).
+
+## Phase 4A — Business Continuity Batch 4.3 *(uncommitted — awaiting review)*
+
+Recovery exercises, testing and validation. Full design notes in
+[`BUSINESS_CONTINUITY.md`](BUSINESS_CONTINUITY.md).
+
+| Workstream | Status | Evidence |
+| --- | --- | --- |
+| Organization-scoped recovery exercises (`EXR-001…`) with title, objectives, type, scope, exclusions, scenario, owner, facilitator, participants and roles, planned/actual dates, methodology, resources, constraints and evidence references | ✅ | `src/convex/recoveryExercises.ts`, `/bcm/dr-tests` |
+| Five documented exercise types (tabletop, walkthrough, communications, recovery-procedure simulation, controlled technical recovery test), each describing the activity accurately | ✅ | `BCM_EXERCISE_TYPES`, form hints |
+| Only an APPROVED continuity plan version can be tested; plan reference/version/status and the analysis reference/version/status plus RTO/RPO/MTPD are snapshotted at creation | ✅ | `requireExercisablePlan`, `resolveBaseline` |
+| Closed lifecycle `planned → scheduled → in_progress → completed → in_review → reviewed/returned`, plus `cancelled`; planning only before the start, results only while in progress, completed records frozen | ✅ | `canTransitionExercise`, `exercisePlanningEditable`, `exerciseResultsEditable` |
+| Activities distinguish **planned**, **reported performed** and **independently verified**; a reporter can never verify their own activity | ✅ | `recoveryExerciseActivities`, `verifyExerciseActivity` |
+| Measured recovery performance (RTO/RPO in minutes, service-level observation) with the approved objective snapshotted per row and outcome/measurement consistency enforced; no approved objective ⇒ `not_assessed` only | ✅ | `recordExerciseMeasurement`, `measurementOutcomeIsConsistent` |
+| Per-strategy coverage of the recovery steps actually walked, unique per exercise and strategy | ✅ | `recoveryExerciseStrategies`, `recordStrategyCoverage` |
+| Findings with severity, owner, target date, corrective action, resolution evidence, independent verification and explicit acceptance; never auto-closes a recovery gap | ✅ | `recoveryExerciseFindings`, `updateExerciseFindingStatus` |
+| Independent review: reviewer cannot own, facilitate, record or complete the exercise; rejection returns the record and a correction opens a new numbered version | ✅ | `reviewExercise`, `supersedeExercise` |
+| Derived `exercise-verified` capability: reviewed exercise on the exact plan version, performed steps, ≥ 1 measurement, no unverified high/critical finding, same analysis baseline; the approved strategies are never mutated | ✅ | `evaluateStrategyCapability`, `planStrategyCapabilities`, `getPlan.strategyCapabilitySummary` |
+| Truthful register: status counts, open-finding counts, keyset pagination and truncation disclosure; activity/measurement/coverage counts per row | ✅ | `listExercises` |
+| Append-only `continuityEvents` rows (exercise/finding attribution) and `bcm.exercise_*` audit entries naming the real actor | ✅ | `appendContinuityEvent`, `logBcmAudit` |
+| Frontend: exercise register, create/amend form, detail with plan/baseline, participants, timeline, measurements and RTO/RPO comparison, coverage and verified-capability indicators, findings and remediation, review, versions and history; read-only without `bcm.manage` | ✅ | `BcmExercisesPage.tsx`, `BcmExerciseForm.tsx`, `BcmExerciseDetailPage.tsx` |
+| Tests (structural + pure + runtime + concurrency-adjacent + cross-tenant + read-only + Chromium journey) | ✅ | `tests/bcmExercises.test.ts` (25), `tests/browser.bcm-exercises.test.ts` (1) |
+
+Not in Batch 4.3 (by design): any execution of recovery. Recording, scheduling,
+starting, completing or reviewing an exercise never shuts down a system, triggers
+failover, restores a backup, runs a recovery command or sends an emergency
+notification. DR runbooks, automated recovery, external scanning and continuity
+report export remain later milestones.
+
+Verified on the final state: `tsc -b --noEmit` exit 0; `eslint` 0 errors
+(25 pre-existing fast-refresh warnings); `bun run build` succeeded;
+`bun test tests/bcm.test.ts tests/bcmPlans.test.ts tests/bcmExercises.test.ts`
+**71/71 pass**; the full unit suite **499 tests / 497 pass / 2 skip / 0 fail**
+(the two skips are the pre-existing bootstrap-first-claim cases that need a fresh
+fixture); all **23 Chromium suites (38 tests) pass** sequentially, including the
+new `tests/browser.bcm-exercises.test.ts` journey, which ends on a reviewed
+exercise with a derived exercise-verified strategy.
 
 ## Phase 3 — Recommended next (not started)
 

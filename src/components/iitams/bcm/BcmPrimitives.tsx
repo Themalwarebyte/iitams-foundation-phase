@@ -104,6 +104,25 @@ const GAP_STATUS_TONES: Record<string, string> = {
   accepted: "bg-info/10 text-info border-info/25",
 };
 
+const EXERCISE_STATUS_TONES: Record<string, string> = {
+  planned: "bg-muted text-muted-foreground border-border",
+  scheduled: "bg-info/10 text-info border-info/25",
+  in_progress: "bg-warning/20 text-foreground/90 border-warning/45",
+  completed: "bg-warning/15 text-foreground/90 border-warning/40",
+  in_review: "bg-warning/15 text-foreground/90 border-warning/40",
+  reviewed: "bg-success/10 text-success border-success/25",
+  returned: "bg-critical/10 text-critical border-critical/30",
+  cancelled: "bg-muted text-muted-foreground border-border",
+};
+
+const FINDING_STATUS_TONES: Record<string, string> = {
+  open: "bg-critical/10 text-critical border-critical/30",
+  in_progress: "bg-warning/20 text-foreground/90 border-warning/45",
+  resolved: "bg-info/10 text-info border-info/25",
+  verified: "bg-success/10 text-success border-success/25",
+  accepted: "bg-muted text-muted-foreground border-border",
+};
+
 const IMPACT_TONES: Record<string, string> = {
   none: "bg-muted text-muted-foreground border-border",
   low: "bg-info/10 text-info border-info/25",
@@ -209,6 +228,26 @@ export function GapStatusPill({
   return <Pill label={label} tone={GAP_STATUS_TONES[status]} />;
 }
 
+export function ExerciseStatusPill({
+  status,
+  label,
+}: {
+  status: string;
+  label: string;
+}) {
+  return <Pill label={label} tone={EXERCISE_STATUS_TONES[status]} />;
+}
+
+export function FindingStatusPill({
+  status,
+  label,
+}: {
+  status: string;
+  label: string;
+}) {
+  return <Pill label={label} tone={FINDING_STATUS_TONES[status]} />;
+}
+
 export function ImpactSeverityPill({
   severity,
   label,
@@ -277,6 +316,26 @@ export function Field({
  * impacts and objectives — never a tested continuity plan, a recovery exercise
  * or a resilience score.
  */
+export function ExerciseDisclaimer({ className }: { className?: string }) {
+  return (
+    <p
+      className={cn(
+        "flex items-start gap-2 text-xs text-muted-foreground",
+        className,
+      )}
+    >
+      <ShieldAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+      <span>
+        This register records exercises; it never runs them. Planning, starting,
+        completing or reviewing an exercise does
+        <strong className="font-medium"> not</strong> shut down systems, trigger
+        failover, restore data or execute recovery. Controlled operational tests
+        require separate authorization and responsible personnel.
+      </span>
+    </p>
+  );
+}
+
 export function BcmDisclaimer({ className }: { className?: string }) {
   return (
     <p

@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "preview": "vite preview",
-    "test:unit": "bun test tests/phase1.test.ts tests/access.test.ts tests/phase2.test.ts tests/phase3a.test.ts tests/phase3ab2.test.ts tests/phase3ab3.test.ts tests/security.devotp.test.ts tests/security.demoescalation.test.ts tests/security.invitations.test.ts tests/security.adminlifecycle.test.ts tests/security.rolemanagement.test.ts tests/accessReview.test.ts tests/previewOwner.test.ts tests/risk.test.ts tests/risk.tenant.test.ts tests/risk.pagination.test.ts tests/riskAssessments.test.ts tests/riskTreatment.test.ts tests/riskMonitoring.test.ts tests/compliance.test.ts tests/complianceTesting.test.ts tests/complianceAssessments.test.ts tests/complianceFindings.test.ts tests/authOtp.test.ts tests/cyber.security.test.ts tests/cyberAssurance.test.ts tests/cyberTesting.test.ts tests/cyberRetesting.test.ts tests/cyberReports.test.ts tests/bcm.test.ts tests/bcmPlans.test.ts",
+    "test:unit": "bun test tests/phase1.test.ts tests/access.test.ts tests/phase2.test.ts tests/phase3a.test.ts tests/phase3ab2.test.ts tests/phase3ab3.test.ts tests/security.devotp.test.ts tests/security.demoescalation.test.ts tests/security.invitations.test.ts tests/security.adminlifecycle.test.ts tests/security.rolemanagement.test.ts tests/accessReview.test.ts tests/previewOwner.test.ts tests/risk.test.ts tests/risk.tenant.test.ts tests/risk.pagination.test.ts tests/riskAssessments.test.ts tests/riskTreatment.test.ts tests/riskMonitoring.test.ts tests/compliance.test.ts tests/complianceTesting.test.ts tests/complianceAssessments.test.ts tests/complianceFindings.test.ts tests/authOtp.test.ts tests/cyber.security.test.ts tests/cyberAssurance.test.ts tests/cyberTesting.test.ts tests/cyberRetesting.test.ts tests/cyberReports.test.ts tests/bcm.test.ts tests/bcmPlans.test.ts tests/bcmExercises.test.ts",
     "test:e2e": "bun test tests/browser.smoke.test.ts",
     "test:e2e:lifecycle": "bun test tests/browser.audit-lifecycle.test.ts",
     "test:e2e:admin": "bun test tests/browser.admin.test.ts",
@@ -32,6 +32,7 @@
     "test:e2e:cyber-reports": "bun test tests/browser.cyber-reports.test.ts",
     "test:e2e:bcm": "bun test tests/browser.bcm.test.ts",
     "test:e2e:bcm-plans": "bun test tests/browser.bcm-plans.test.ts",
+    "test:e2e:bcm-exercises": "bun test tests/browser.bcm-exercises.test.ts",
     "test": "bun test tests/"
   },
   "dependencies": {

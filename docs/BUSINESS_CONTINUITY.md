@@ -2,9 +2,10 @@
 
 > Phase 4A — Batch 4.1: **Business Impact Analysis and Recovery Objectives**.
 > Batch 4.1 is committed as `b85273f`; Batch 4.2 (**continuity plans,
-> recovery strategies and recovery gaps**) is committed with this change.
-> Recovery exercises, DR runbooks,
-> emergency communications and recovery automation are later batches.
+> recovery strategies and recovery gaps**) is committed as `9b1bfb6`.
+> Batch 4.3 (**recovery exercises, testing and validation**) is implemented
+> and awaits review. DR runbooks, emergency communications and recovery
+> automation are later batches.
 
 ## Scope of these batches
 
@@ -31,10 +32,16 @@ Implemented:
 - append-only continuity history and audit trail;
 - truthful coverage summaries and a recovery-objective summary.
 
-Deliberately **not** implemented: DR runbooks, recovery exercises/simulations,
-emergency communications, automated failover or restoration, and any
-readiness/resilience score. A plan is a documented intent, not evidence that
-recovery works.
+Batch 4.3 adds the exercise register: recorded tabletop exercises,
+walkthroughs, communications exercises, recovery-procedure simulations and
+controlled technical recovery tests, with activities, independent verification,
+measured recovery performance, per-strategy coverage, findings and review.
+
+Deliberately **not** implemented: DR runbooks, emergency communications,
+automated failover or restoration, automated backup restoration, external
+scanning and any readiness/resilience score. A plan is a documented intent and
+an exercise record is evidence about one tested version — neither is presented
+as organizational resilience.
 
 ## Authorization model
 
@@ -162,6 +169,110 @@ draft ──submit──▶ in_review ──approve──▶ approved ──revi
 - Re-submission clears the previous decision stamps so a stale decision cannot
   be mistaken for a current one.
 
+## Recovery exercises (Batch 4.3)
+
+An exercise is a **record**, never an operation. Creating, scheduling, starting,
+completing or reviewing one changes only the register: nothing shuts down a
+system, triggers failover, restores a backup, runs a recovery command or sends
+an emergency notification. Controlled technical recovery tests are performed by
+responsible personnel under separate authorization and documented here.
+
+### Eligibility and snapshots
+
+- Only an **approved** continuity plan version can be tested. Draft, in-review,
+  returned, superseded and archived plans are refused.
+- The plan reference, version and status, plus the linked analysis reference,
+  version, status and RTO/RPO/MTPD, are snapshotted on the exercise. Objectives
+  are only carried across when the analysis was approved; a draft's numbers are
+  never used as an approved objective.
+- Every participant, owner, facilitator, strategy and linked gap must belong to
+  the caller's organization and (for strategies/gaps) the tested plan version.
+
+### Lifecycle
+
+```
+planned ──schedule──▶ scheduled ──start──▶ in_progress ──complete──▶ completed
+   │                     │                     │                        │
+   └──────cancel─────────┴──────cancel─────────┘                        └──submit──▶ in_review
+                                                                                      │
+                                                                      reviewed ◀──accept─┤
+                                                                      returned ◀──return─┘
+```
+
+- Planning detail (title, objectives, type, scope, exclusions, scenario, owner,
+  facilitator, participants, dates, methodology, resources, constraints,
+  evidence references) is editable only while `planned` or `scheduled`.
+- Observations, measurements, strategy coverage and new findings are only
+  recorded while `in_progress`. Completion requires a stated outcome and at
+  least one activity **reported as performed**; the completed record is frozen.
+- `reviewed`, `returned` and `cancelled` are terminal. A material correction to
+  a completed or reviewed record opens a new numbered version
+  (`supersedeExercise`), and the earlier record keeps its results, review and
+  history.
+- Independent review: the reviewer cannot be the exercise owner, facilitator,
+  preparer or the person who completed it. This is enforced server-side and the
+  UI explains why the action is unavailable.
+
+### Reported versus verified
+
+Each activity tracks `performed` (what the team reported doing) separately from
+`verified` (an attributed independent check). The verifier can never be the
+person who reported the activity, and verification is only possible before the
+review decision.
+
+### Measurements
+
+- RTO and RPO measurements are stored in whole minutes; the approved objective
+  is snapshotted on the measurement with its analysis reference.
+- The recorded outcome must agree with the arithmetic: `met` only when the
+  measurement is within the objective, `missed` only when it exceeds it.
+- Without an approved objective the only accepted outcome is `not_assessed` — a
+  measurement can be recorded, but nothing is claimed against an objective that
+  does not exist.
+- A minimum service level is an observation, not a number of minutes.
+- A missed objective is reported as a finding; the approved BIA and its
+  objectives are never modified from the exercise. A *missed* observation that
+  was never raised as a finding or recovery gap blocks the capability claim
+  instead of being hidden by a reviewed status.
+- Every measurement is attributed to the strategy it measured (inferred when the
+  exercise covers exactly one strategy, otherwise chosen explicitly). A strategy
+  whose steps were never walked cannot be measured at all.
+
+### Exercise-verified capability
+
+`evaluateStrategyCapability` is a pure function shared by the server and the
+plan detail. A strategy is labelled `exercise-verified` only when **all** of the
+following hold:
+
+1. a reviewed exercise exists on the exact plan version that contains it;
+2. that exercise recorded the strategy's recovery steps as performed;
+3. it produced at least one measurement **attributed to that strategy** and
+   actually assessed against an approved objective — `not_assessed` is never
+   treated as achievement, and an exercise that covered several strategies
+   cannot lend one strategy's measurement to another;
+4. no high or critical finding for that strategy is open, in progress or
+   awaiting verification (an explicitly accepted finding is disclosed, and a
+   verified one is closed);
+5. no objective was measured as missed without a finding or recovery gap
+   recording the deviation;
+6. the exercise tested the same analysis baseline version as the plan.
+
+Anything less stays a documented estimate, with the unmet conditions listed in
+the UI. The label is **derived evidence**: the approved plan and its strategies
+are never mutated, and a plan is never presented as exercise-verified as a
+whole — only the strategies an exercise actually covered are counted.
+
+### Findings and remediation
+
+- Findings are raised from the moment an exercise is running, may reference a
+  strategy, an objective and an existing recovery gap, and carry an owner,
+  target date and corrective action.
+- `open → in_progress → resolved → verified` (or `accepted` with a rationale).
+  Resolution requires notes and an evidence reference; verification requires a
+  different authorized user from the resolver.
+- A finding never closes itself by being assigned, and verifying a finding never
+  closes a recovery gap — gaps keep their own evidence and closure workflow.
+
 ## Summaries
 
 `continuitySummary` reports recorded counts only: services total/active/
@@ -188,6 +299,8 @@ continuity capability.
 | `/bcm/rto-rpo` | `BcmRecoveryPage` — recovery objectives per service, priority, overdue reviews, truncation notice |
 | `/bcm/plans` | `BcmPlansPage` — continuity plan register with status/priority filters, search by reference, title, owner or service, keyset pagination, gap counts and truncation disclosure |
 | `/bcm/plans/:planId` | `BcmPlanDetailPage` — plan content, services covered, baseline warning, recovery strategies with capability comparison, recovery gaps, version history and append-only history, plus submit/review/revision/archive and strategy/gap actions |
+| `/bcm/dr-tests` | `BcmExercisesPage` — exercise register with status/type filters, search, keyset pagination, open-finding counts and truncation disclosure |
+| `/bcm/dr-tests/:exerciseId` | `BcmExerciseDetailPage` — plan and baseline tested, participants, activities (planned / reported / verified), measurements with objective comparison, strategy coverage and derived capability, findings and remediation, review, versions and history, plus schedule/start/complete/cancel/submit/review/supersede actions |
 
 Register and detail pages show loading, empty, error (crash boundary) and
 unauthorized states. The module-wide disclaimer explains that a BIA is an
@@ -216,27 +329,48 @@ analysis and a plan is a documented intent — neither is a resilience claim.
   create a plan without a baseline (disclosure asserted), submit, independent
   approval by a second identity, frozen version with revision offered, and a
   read-only viewer.
+- `tests/bcmExercises.test.ts` — structural checks (closed exercise/finding
+  tables, planning vs results windows, no operational execution, no resilience
+  score, schema snapshots/indexes, real routes, derived capability) and a
+  runtime lifecycle: approved-plan-only, cross-tenant refusal, participant
+  membership, schedule/start, frozen planning, reported vs verified activity,
+  outcome consistency, results-window enforcement, single coverage per
+  strategy, finding resolution and independent verification, completion,
+  self-review refusal, reviewed capability derivation, supersession, read-only
+  refusal, pagination and no mutation of the approved strategies.
+- `tests/browser.bcm-exercises.test.ts` — Chromium journey: plan a tabletop
+  exercise, schedule and start it, report an activity, record a missed RTO
+  measurement, record strategy coverage, raise a finding, complete, submit, and
+  have a second identity independently accept it; then confirm the reviewed
+  status and the exercise-verified capability label.
 
-Run them with `bun test tests/bcm.test.ts tests/bcmPlans.test.ts` and
-`bun run test:e2e:bcm` / `bun run test:e2e:bcm-plans` (strict), or
-`IITAMS_E2E_STRICT=1 bun test tests/browser.bcm-plans.test.ts`.
+Run them with `bun test tests/bcm.test.ts tests/bcmPlans.test.ts
+tests/bcmExercises.test.ts` and `bun run test:e2e:bcm` /
+`bun run test:e2e:bcm-plans` / `bun run test:e2e:bcm-exercises` (strict), or
+`IITAMS_E2E_STRICT=1 bun test tests/browser.bcm-exercises.test.ts`.
 
 ## Known limitations
 
-- No runbook, exercise, simulation or recovery-automation record exists yet; a
-  plan never claims recovery has been tested.
-- Strategy capability cannot be marked `exercise_verified` because exercises do
-  not exist; everything is a documented estimate.
+- No DR runbook or automated recovery procedure is stored; exercises reference
+  external documentation instead.
+- No automated failover, infrastructure shutdown, backup restoration, external
+  scanning or emergency notification exists anywhere in the module.
+- Strategy `capabilityEvidence` is still stored as `estimate`. Verification is
+  derived from reviewed exercises and shown alongside it; it never edits the
+  approved plan record.
+- Findings have no notification/escalation integration; overdue findings are
+  surfaced in the UI only.
 - No ICT asset register, so asset links are descriptive text.
 - Summaries are bounded and disclose truncation instead of extrapolating.
 - The export/report surface for continuity data (`/reports/bcm`) is still a
   placeholder.
-- A plan records intended recovery; it does not evidence that recovery works.
+- A plan records intended recovery, and an exercise records what was observed
+  once; neither evidences that recovery would succeed in a real event.
 
 ## Next batch (recommended)
 
-Business Continuity Batch 4.3 — recovery **exercises** and lessons learned:
-exercise records scoped to a plan version, participants, success criteria and
-outcomes, which are the only thing allowed to move a strategy from `estimate` to
-`exercise_verified`. Nothing in that batch should infer resilience from the
-presence of a plan or an exercise schedule.
+Business Continuity Batch 4.4 — continuity **reporting and lessons-learned
+consolidation**: exercise and finding summaries for management, continuity
+report export, and overdue-exercise/review tracking. Automated failover,
+infrastructure recovery and live operational tooling remain explicitly out of
+scope and require a separate authorized milestone.

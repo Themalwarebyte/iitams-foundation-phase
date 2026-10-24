@@ -45,6 +45,7 @@ import {
   type BcmPlanStatus,
 } from "../lib/bcm";
 import { effectiveMembershipStatus } from "../lib/membership";
+import { planStrategyCapabilities } from "./recoveryExercises";
 
 /**
  * Business Continuity — Batch 4.2: continuity plans, recovery strategies and
@@ -280,6 +281,9 @@ function presentPlan(
 function presentStrategy(
   row: Doc<"recoveryStrategies">,
   baseline: Doc<"businessImpactAnalyses"> | null,
+  // Derived from reviewed recovery exercises (Batch 4.3). It is recomputed
+  // evidence, never a stored edit to the frozen plan version.
+  capability?: { verified: boolean; reasons: string[]; exerciseReference?: string },
 ) {
   return {
     _id: row._id,
@@ -307,6 +311,11 @@ function presentStrategy(
     capabilityEvidence: row.capabilityEvidence,
     capabilityEvidenceLabel: BCM_CAPABILITY_EVIDENCE_LABELS[row.capabilityEvidence],
     capabilityRationale: row.capabilityRationale,
+    exerciseVerified: capability?.verified ?? false,
+    exerciseVerificationReasons: capability?.reasons ?? [
+      "No reviewed recovery exercise covers this strategy",
+    ],
+    exerciseVerifiedBy: capability?.exerciseReference ?? null,
     // Arithmetic only. A positive delta means the ESTIMATE is longer than the
     // approved objective — it says nothing about what recovery would achieve.
     rtoDeltaMinutes: baseline
@@ -641,6 +650,11 @@ export const getPlan = query({
     const openGaps = gaps.filter(
       (row) => row.status === "open" || row.status === "in_progress",
     );
+    const capabilities = await planStrategyCapabilities(
+      ctx,
+      access.organizationId,
+      plan,
+    );
 
     return {
       plan: presentPlan(plan, primary, additional, {
@@ -691,8 +705,18 @@ export const getPlan = query({
         }))
         .sort((a, b) => b.version - a.version),
       strategies: strategies
-        .map((row) => presentStrategy(row, baseline))
+        .map((row) =>
+          presentStrategy(row, baseline, capabilities.get(String(row._id))),
+        )
         .sort((a, b) => a.reference.localeCompare(b.reference)),
+      // Only strategies that a reviewed exercise actually evidenced are counted;
+      // a plan is never presented as exercise-verified as a whole.
+      strategyCapabilitySummary: {
+        total: strategies.length,
+        exerciseVerified: strategies.filter(
+          (row) => capabilities.get(String(row._id))?.verified,
+        ).length,
+      },
       gaps: gaps
         .map((row) =>
           presentGap(

@@ -160,6 +160,17 @@ const BcmPlanDetailPage = lazy(() =>
     default: m.BcmPlanDetailPage,
   })),
 );
+// Phase 4A Batch 4.3 — recovery exercises, testing and validation
+const BcmExercisesPage = lazy(() =>
+  import("./components/iitams/bcm/BcmExercisesPage").then((m) => ({
+    default: m.BcmExercisesPage,
+  })),
+);
+const BcmExerciseDetailPage = lazy(() =>
+  import("./components/iitams/bcm/BcmExerciseDetailPage").then((m) => ({
+    default: m.BcmExerciseDetailPage,
+  })),
+);
 const AdminAccessReviewsPage = lazy(() =>
   import("./components/iitams/admin/AdminAccessReviewsPage").then((m) => ({
     default: m.AdminAccessReviewsPage,
@@ -265,9 +276,8 @@ const MODULE_ROUTES = [
   "/cyber/network-assessments",
   "/cyber/application-security",
   "/cyber/configuration-reviews",
-  // Business Continuity (the register, BIA, recovery-objective and continuity
-  // plan pages have dedicated Phase-4A routes below)
-  "/bcm/dr-tests",
+  // Business Continuity (the register, BIA, recovery-objective, continuity-plan
+  // and recovery-exercise pages have dedicated Phase-4A routes below)
   "/bcm/lessons-learned",
   // Reports & Analytics
   "/reports/executive",
@@ -494,6 +504,29 @@ createRoot(document.getElementById("root")!).render(
                     description="Continuity plans are available to authorized users of your organization."
                   >
                     <BcmPlanDetailPage path="/bcm/plans" />
+                  </RequireAuth>
+                }
+              />
+              {/* Phase 4A Batch 4.3 — recovery exercises, testing and validation */}
+              <Route
+                path="/bcm/dr-tests"
+                element={
+                  <RequireAuth
+                    title="Sign in to open recovery exercises"
+                    description="Recovery exercises are available to authorized users of your organization."
+                  >
+                    <BcmExercisesPage path="/bcm/dr-tests" />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/bcm/dr-tests/:exerciseId"
+                element={
+                  <RequireAuth
+                    title="Sign in to open this recovery exercise"
+                    description="Recovery exercises are available to authorized users of your organization."
+                  >
+                    <BcmExerciseDetailPage path="/bcm/dr-tests" />
                   </RequireAuth>
                 }
               />

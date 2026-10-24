@@ -470,6 +470,356 @@ export function recoveryCapabilityDelta(input: {
   return input.expectedMinutes - input.objectiveMinutes;
 }
 
+// ---------------------------------------------------------------------------
+// Recovery exercises, testing and validation (Batch 4.3)
+// ---------------------------------------------------------------------------
+// An exercise is a RECORD of an activity that was planned and (once executed)
+// observed. Recording, scheduling, completing or reviewing an exercise never
+// executes recovery, shuts anything down, triggers failover or restores data:
+// operational testing needs external authorization and responsible personnel.
+
+export const BCM_EXERCISE_TYPES = [
+  "tabletop",
+  "walkthrough",
+  "communications",
+  "recovery_simulation",
+  "technical_recovery_test",
+] as const;
+export type BcmExerciseType = (typeof BCM_EXERCISE_TYPES)[number];
+
+export const BCM_EXERCISE_TYPE_LABELS: Record<BcmExerciseType, string> = {
+  tabletop: "Tabletop exercise",
+  walkthrough: "Walkthrough",
+  communications: "Communications exercise",
+  recovery_simulation: "Recovery-procedure simulation",
+  technical_recovery_test: "Controlled technical recovery test",
+};
+
+export const BCM_EXERCISE_TYPE_DESCRIPTIONS: Record<BcmExerciseType, string> = {
+  tabletop: "Discussion-based review of a scenario against the plan; no systems are touched.",
+  walkthrough: "Step-by-step review of the documented procedures with the responsible people.",
+  communications: "Exercise of notification, escalation and stakeholder communication only.",
+  recovery_simulation: "Simulated recovery of procedures and decisions without operational failover.",
+  technical_recovery_test:
+    "Controlled test of recovery steps on authorized non-production or approved infrastructure, executed by responsible personnel outside this module.",
+};
+
+export const BCM_EXERCISE_STATUSES = [
+  "planned",
+  "scheduled",
+  "in_progress",
+  "completed",
+  "in_review",
+  "reviewed",
+  "returned",
+  "cancelled",
+] as const;
+export type BcmExerciseStatus = (typeof BCM_EXERCISE_STATUSES)[number];
+
+export const BCM_EXERCISE_STATUS_LABELS: Record<BcmExerciseStatus, string> = {
+  planned: "Planned",
+  scheduled: "Scheduled",
+  in_progress: "In progress",
+  completed: "Completed — awaiting review",
+  in_review: "Submitted for review",
+  reviewed: "Reviewed / accepted",
+  returned: "Returned — record a new version",
+  cancelled: "Cancelled",
+};
+
+/**
+ * Closed lifecycle. A returned exercise cannot be edited back into shape: the
+ * reported results are history, so a material correction opens a new version.
+ */
+export const BCM_EXERCISE_TRANSITIONS: Record<
+  BcmExerciseStatus,
+  BcmExerciseStatus[]
+> = {
+  planned: ["scheduled", "in_progress", "cancelled"],
+  scheduled: ["in_progress", "cancelled"],
+  in_progress: ["completed", "cancelled"],
+  completed: ["in_review"],
+  in_review: ["reviewed", "returned"],
+  reviewed: [],
+  returned: [],
+  cancelled: [],
+};
+
+export function canTransitionExercise(
+  from: BcmExerciseStatus,
+  to: BcmExerciseStatus,
+): boolean {
+  return BCM_EXERCISE_TRANSITIONS[from]?.includes(to) ?? false;
+}
+
+/** Planning detail may change before the exercise starts. */
+export function exercisePlanningEditable(status: BcmExerciseStatus): boolean {
+  return status === "planned" || status === "scheduled";
+}
+
+/** Observations, measurements and coverage may only be recorded while running. */
+export function exerciseResultsEditable(status: BcmExerciseStatus): boolean {
+  return status === "in_progress";
+}
+
+/** Findings may be raised from the moment an exercise is running. */
+export function exerciseAcceptsFindings(status: BcmExerciseStatus): boolean {
+  return (
+    status === "in_progress" ||
+    status === "completed" ||
+    status === "in_review" ||
+    status === "reviewed" ||
+    status === "returned"
+  );
+}
+
+export const BCM_EXERCISE_STATUS_TERMINAL: readonly BcmExerciseStatus[] = [
+  "reviewed",
+  "returned",
+  "cancelled",
+];
+
+export const BCM_MEASUREMENT_OBJECTIVES = [
+  "rto",
+  "rpo",
+  "service_level",
+] as const;
+export type BcmMeasurementObjective =
+  (typeof BCM_MEASUREMENT_OBJECTIVES)[number];
+
+export const BCM_MEASUREMENT_OBJECTIVE_LABELS: Record<
+  BcmMeasurementObjective,
+  string
+> = {
+  rto: "Recovery time (RTO)",
+  rpo: "Recovery point / data loss (RPO)",
+  service_level: "Minimum service level achieved",
+};
+
+export const BCM_MEASUREMENT_OUTCOMES = [
+  "met",
+  "missed",
+  "not_assessed",
+] as const;
+export type BcmMeasurementOutcome = (typeof BCM_MEASUREMENT_OUTCOMES)[number];
+
+export const BCM_MEASUREMENT_OUTCOME_LABELS: Record<
+  BcmMeasurementOutcome,
+  string
+> = {
+  met: "Objective met",
+  missed: "Objective missed — record a finding",
+  not_assessed: "Not assessed against an objective",
+};
+
+/**
+ * Arithmetic comparison between an approved objective and what an exercise
+ * actually observed. Positive means the observation exceeded the objective.
+ * A missing objective has no comparison at all — never zero, never "met".
+ */
+export function measuredObjectiveDelta(input: {
+  objectiveMinutes?: number;
+  measuredMinutes?: number;
+}): number | undefined {
+  if (
+    input.objectiveMinutes === undefined ||
+    input.measuredMinutes === undefined
+  ) {
+    return undefined;
+  }
+  return input.measuredMinutes - input.objectiveMinutes;
+}
+
+/**
+ * An outcome must agree with the recorded measurement. A "met" verdict cannot
+ * sit on a measurement that exceeds the objective, and without an approved
+ * objective the only honest outcome is "not assessed".
+ */
+export function measurementOutcomeIsConsistent(input: {
+  objectiveMinutes?: number;
+  measuredMinutes?: number;
+  outcome: BcmMeasurementOutcome;
+}): boolean {
+  const { objectiveMinutes, measuredMinutes, outcome } = input;
+  if (objectiveMinutes === undefined || measuredMinutes === undefined) {
+    return outcome === "not_assessed";
+  }
+  if (outcome === "not_assessed") return false;
+  const delta = measuredMinutes - objectiveMinutes;
+  return outcome === "met" ? delta <= 0 : delta > 0;
+}
+
+export const BCM_FINDING_SEVERITIES = [
+  "low",
+  "medium",
+  "high",
+  "critical",
+] as const;
+export type BcmFindingSeverity = (typeof BCM_FINDING_SEVERITIES)[number];
+
+export const BCM_FINDING_SEVERITY_LABELS: Record<BcmFindingSeverity, string> =
+  BCM_GAP_SEVERITY_LABELS;
+
+export const BCM_FINDING_STATUSES = [
+  "open",
+  "in_progress",
+  "resolved",
+  "verified",
+  "accepted",
+] as const;
+export type BcmFindingStatus = (typeof BCM_FINDING_STATUSES)[number];
+
+export const BCM_FINDING_STATUS_LABELS: Record<BcmFindingStatus, string> = {
+  open: "Open",
+  in_progress: "Corrective action in progress",
+  resolved: "Resolved — awaiting verification",
+  verified: "Resolved and independently verified",
+  accepted: "Accepted (deficiency disclosed)",
+};
+
+export const BCM_FINDING_TRANSITIONS: Record<
+  BcmFindingStatus,
+  BcmFindingStatus[]
+> = {
+  open: ["in_progress", "resolved", "accepted"],
+  in_progress: ["resolved", "accepted"],
+  resolved: ["verified", "accepted"],
+  verified: [],
+  accepted: [],
+};
+
+export function canTransitionFinding(
+  from: BcmFindingStatus,
+  to: BcmFindingStatus,
+): boolean {
+  return BCM_FINDING_TRANSITIONS[from]?.includes(to) ?? false;
+}
+
+// Validators live after their source arrays: this module's constants are
+// evaluated top-down, so referencing them earlier would read `undefined`.
+export const bcmExerciseTypeValidator = v.union(
+  ...BCM_EXERCISE_TYPES.map((type) => v.literal(type)),
+);
+export const bcmExerciseStatusValidator = v.union(
+  ...BCM_EXERCISE_STATUSES.map((status) => v.literal(status)),
+);
+export const bcmMeasurementObjectiveValidator = v.union(
+  ...BCM_MEASUREMENT_OBJECTIVES.map((objective) => v.literal(objective)),
+);
+export const bcmMeasurementOutcomeValidator = v.union(
+  ...BCM_MEASUREMENT_OUTCOMES.map((outcome) => v.literal(outcome)),
+);
+export const bcmFindingSeverityValidator = v.union(
+  ...BCM_FINDING_SEVERITIES.map((severity) => v.literal(severity)),
+);
+export const bcmFindingStatusValidator = v.union(
+  ...BCM_FINDING_STATUSES.map((status) => v.literal(status)),
+);
+
+/**
+ * Exercise-verified capability (Batch 4.3 §G).
+ *
+ * A strategy is exercise-verified ONLY when a reviewed exercise tested the
+ * exact plan version that contains it, recorded the recovery steps as
+ * performed, produced at least one measurement, and left no unverified
+ * high/critical deficiency attached to that strategy. Anything less stays a
+ * documented estimate with the unmet conditions spelled out.
+ */
+export type StrategyCapabilityEvidence = {
+  exerciseId: string;
+  exerciseReference: string;
+  exerciseStatus: string;
+  planId: string;
+  planVersion: number;
+  biaVersion?: number;
+  stepsPerformed: boolean;
+  /** Measurements attributed to THIS strategy (not merely to the exercise). */
+  strategyMeasurements: number;
+  /** Of those, measurements actually assessed as met or missed. */
+  assessedMeasurements: number;
+  /**
+   * Objectives this exercise measured as missed without a finding or recovery
+   * gap recording the deviation. A concealed miss cannot be verified.
+   */
+  undisclosedMisses?: number;
+};
+
+export type StrategyFindingSummary = {
+  severity: BcmFindingSeverity;
+  status: BcmFindingStatus;
+};
+
+export function evaluateStrategyCapability(input: {
+  strategyId: string;
+  planVersion: number;
+  biaVersion?: number;
+  exercises: StrategyCapabilityEvidence[];
+  findings: StrategyFindingSummary[];
+}): { verified: boolean; reasons: string[]; exerciseReference?: string } {
+  const reasons: string[] = [];
+  const reviewed = input.exercises.filter(
+    (row) => row.exerciseStatus === "reviewed" && row.planVersion === input.planVersion,
+  );
+  if (reviewed.length === 0) {
+    reasons.push(
+      "No independently reviewed exercise has covered this strategy on this plan version",
+    );
+  }
+  const performed = reviewed.filter((row) => row.stepsPerformed);
+  if (reviewed.length > 0 && performed.length === 0) {
+    reasons.push("No reviewed exercise recorded the recovery steps as performed");
+  }
+  // Only an assessed observation (met/missed against an approved objective) can
+  // establish capability. "not_assessed" is a measurement of nothing.
+  const measured = performed.filter((row) => row.assessedMeasurements > 0);
+  if (
+    reviewed.length > 0 &&
+    measured.length === 0 &&
+    performed.some((row) => row.strategyMeasurements > 0)
+  ) {
+    reasons.push(
+      "This strategy was only measured as 'not assessed'; no observation was compared against an approved objective",
+    );
+  } else if (reviewed.length > 0 && measured.length === 0) {
+    reasons.push(
+      "No reviewed exercise recorded a measurement for this strategy supporting the claimed capability",
+    );
+  }
+  if (measured.some((row) => (row.undisclosedMisses ?? 0) > 0)) {
+    reasons.push(
+      "An exercise measured this strategy beyond its approved objective without raising the deviation as a finding or recovery gap",
+    );
+  }
+  const blocking = input.findings.filter(
+    (row) =>
+      row.severity !== "low" &&
+      (row.status === "open" ||
+        row.status === "in_progress" ||
+        row.status === "resolved"),
+  );
+  if (blocking.length > 0) {
+    reasons.push(
+      "A high or critical exercise finding is unresolved or awaiting independent verification",
+    );
+  }
+  const candidate = measured.find(
+    (row) =>
+      reviewed.some((r) => r.exerciseId === row.exerciseId) &&
+      (input.biaVersion === undefined || row.biaVersion === input.biaVersion),
+  );
+  if (candidate === undefined && reviewed.length > 0 && reasons.length === 0) {
+    reasons.push(
+      "The reviewed exercise tested a different analysis baseline than the plan version being presented",
+    );
+  }
+  const verified = reasons.length === 0 && candidate !== undefined;
+  return {
+    verified,
+    reasons,
+    exerciseReference: verified ? candidate?.exerciseReference : undefined,
+  };
+}
+
 /** The highest recorded impact severity for a BIA (display only). */
 export function highestImpactSeverity(
   impacts: BcmImpacts,

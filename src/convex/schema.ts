@@ -29,9 +29,15 @@ import {
   bcmBiaStatusValidator,
   bcmCapabilityEvidenceValidator,
   bcmCriticalityValidator,
+  bcmExerciseStatusValidator,
+  bcmExerciseTypeValidator,
+  bcmFindingSeverityValidator,
+  bcmFindingStatusValidator,
   bcmGapSeverityValidator,
   bcmGapStatusValidator,
   bcmImpactsValidator,
+  bcmMeasurementObjectiveValidator,
+  bcmMeasurementOutcomeValidator,
   bcmPlanStatusValidator,
   bcmPriorityValidator,
   bcmReviewDecisionValidator,
@@ -1775,6 +1781,8 @@ const schema = defineSchema(
       planId: v.optional(v.id("continuityPlans")),
       strategyId: v.optional(v.id("recoveryStrategies")),
       gapId: v.optional(v.id("recoveryGaps")),
+      exerciseId: v.optional(v.id("recoveryExercises")),
+      findingId: v.optional(v.id("recoveryExerciseFindings")),
       type: v.string(),
       fromStatus: v.optional(v.string()),
       toStatus: v.optional(v.string()),
@@ -1788,6 +1796,7 @@ const schema = defineSchema(
       .index("by_organization_service", ["organizationId", "serviceId"])
       .index("by_organization_bia", ["organizationId", "biaId"])
       .index("by_organization_plan", ["organizationId", "planId"])
+      .index("by_organization_exercise", ["organizationId", "exerciseId"])
       .index("by_organization_created", ["organizationId", "createdAt"]),
 
     // ------------------------------------------------------------------
@@ -1911,6 +1920,199 @@ const schema = defineSchema(
       ...auditFields,
     })
       .index("by_organization", ["organizationId"])
+      .index("by_organization_plan", ["organizationId", "planId"])
+      .index("by_organization_status", ["organizationId", "status"])
+      .index("by_organization_reference", ["organizationId", "reference"]),
+
+    // ------------------------------------------------------------------
+    // BUSINESS CONTINUITY EXERCISES (Phase 4A — Batch 4.3)
+    // ------------------------------------------------------------------
+    // An exercise records what was planned and, once run, what was observed.
+    // Nothing here executes recovery, touches infrastructure or restores data:
+    // the module is a register of evidence and its review.
+    recoveryExercises: defineTable({
+      organizationId: v.id("organizations"),
+      reference: v.string(), // EXR-001…
+      title: v.string(),
+      objectives: v.string(),
+      // The plan version tested. Reference/version/status are snapshotted so a
+      // later revision cannot rewrite what this exercise actually tested.
+      planId: v.id("continuityPlans"),
+      planReference: v.string(),
+      planVersion: v.number(),
+      planStatusAtLink: bcmPlanStatusValidator,
+      // The analysis baseline the plan relied on at exercise creation.
+      biaId: v.optional(v.id("businessImpactAnalyses")),
+      biaReference: v.optional(v.string()),
+      biaVersion: v.optional(v.number()),
+      biaStatusAtLink: v.optional(v.string()),
+      biaRtoMinutes: v.optional(v.number()),
+      biaRpoMinutes: v.optional(v.number()),
+      biaMtpdMinutes: v.optional(v.number()),
+      type: bcmExerciseTypeValidator,
+      scope: v.string(),
+      exclusions: v.string(),
+      scenario: v.string(),
+      ownerUserId: v.id("users"),
+      ownerLabel: v.string(),
+      facilitatorUserId: v.id("users"),
+      facilitatorLabel: v.string(),
+      participants: v.array(
+        v.object({
+          userId: v.id("users"),
+          label: v.string(),
+          role: v.string(),
+        }),
+      ),
+      plannedStartAt: v.number(),
+      plannedEndAt: v.number(),
+      actualStartAt: v.optional(v.number()),
+      actualEndAt: v.optional(v.number()),
+      status: bcmExerciseStatusValidator,
+      methodology: v.string(),
+      requiredResources: v.string(),
+      constraints: v.string(),
+      evidenceReferences: v.optional(v.string()),
+      outcomeSummary: v.optional(v.string()),
+      outcomeJustification: v.optional(v.string()),
+      version: v.number(),
+      revisionOf: v.optional(v.id("recoveryExercises")),
+      supersededByExerciseId: v.optional(v.id("recoveryExercises")),
+      preparedByUserId: v.id("users"),
+      preparedByLabel: v.string(),
+      preparedAt: v.number(),
+      startedAt: v.optional(v.number()),
+      completedAt: v.optional(v.number()),
+      completedByUserId: v.optional(v.id("users")),
+      completedByLabel: v.optional(v.string()),
+      submittedAt: v.optional(v.number()),
+      submittedByUserId: v.optional(v.id("users")),
+      submittedByLabel: v.optional(v.string()),
+      reviewedAt: v.optional(v.number()),
+      reviewedByUserId: v.optional(v.id("users")),
+      reviewedByLabel: v.optional(v.string()),
+      reviewDecision: v.optional(bcmReviewDecisionValidator),
+      reviewNotes: v.optional(v.string()),
+      cancelledAt: v.optional(v.number()),
+      cancelledByUserId: v.optional(v.id("users")),
+      cancelledByLabel: v.optional(v.string()),
+      cancelReason: v.optional(v.string()),
+      isDemo: v.optional(v.boolean()),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_created", ["organizationId", "createdAt"])
+      .index("by_organization_status", ["organizationId", "status"])
+      .index("by_organization_plan", ["organizationId", "planId"])
+      .index("by_organization_reference", ["organizationId", "reference"]),
+
+    // Timeline rows. `performed` is what the team REPORTED doing; `verified` is
+    // a separate, attributed independent check. Neither is inferred.
+    recoveryExerciseActivities: defineTable({
+      organizationId: v.id("organizations"),
+      exerciseId: v.id("recoveryExercises"),
+      sequence: v.number(),
+      plannedActivity: v.string(),
+      expectedResponse: v.string(),
+      performed: v.boolean(),
+      actualObservation: v.optional(v.string()),
+      deviation: v.optional(v.string()),
+      evidenceReference: v.optional(v.string()),
+      limitations: v.optional(v.string()),
+      performedByUserId: v.optional(v.id("users")),
+      performedByLabel: v.optional(v.string()),
+      performedAt: v.optional(v.number()),
+      verified: v.boolean(),
+      verifiedAt: v.optional(v.number()),
+      verifiedByUserId: v.optional(v.id("users")),
+      verifiedByLabel: v.optional(v.string()),
+      verificationNotes: v.optional(v.string()),
+      recordedByUserId: v.id("users"),
+      recordedByLabel: v.string(),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_exercise", ["organizationId", "exerciseId"]),
+
+    // Measured recovery performance. The approved objective is snapshotted per
+    // row; when no approved objective exists the outcome must be not_assessed.
+    recoveryExerciseMeasurements: defineTable({
+      organizationId: v.id("organizations"),
+      exerciseId: v.id("recoveryExercises"),
+      // The strategy this observation measures. Capability is only ever claimed
+      // for the strategy a measurement is attributed to, never for every
+      // strategy the exercise happened to cover.
+      strategyId: v.optional(v.id("recoveryStrategies")),
+      objective: bcmMeasurementObjectiveValidator,
+      measuredMinutes: v.optional(v.number()),
+      observedValue: v.string(),
+      objectiveMinutes: v.optional(v.number()),
+      objectiveReference: v.optional(v.string()),
+      outcome: bcmMeasurementOutcomeValidator,
+      justification: v.string(),
+      evidenceReference: v.string(),
+      limitations: v.string(),
+      recordedByUserId: v.id("users"),
+      recordedByLabel: v.string(),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_exercise", ["organizationId", "exerciseId"])
+      .index("by_organization_strategy", ["organizationId", "strategyId"]),
+
+    // Which documented recovery strategies the exercise actually walked through.
+    recoveryExerciseStrategies: defineTable({
+      organizationId: v.id("organizations"),
+      exerciseId: v.id("recoveryExercises"),
+      planId: v.id("continuityPlans"),
+      strategyId: v.id("recoveryStrategies"),
+      stepsRecorded: v.string(),
+      stepsPerformed: v.boolean(),
+      observation: v.string(),
+      limitations: v.optional(v.string()),
+      recordedByUserId: v.id("users"),
+      recordedByLabel: v.string(),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_exercise", ["organizationId", "exerciseId"])
+      .index("by_organization_strategy", ["organizationId", "strategyId"]),
+
+    // Exercise findings / deficiencies. Closing one never closes a recovery gap:
+    // a gap keeps its own owner, target date and verification workflow.
+    recoveryExerciseFindings: defineTable({
+      organizationId: v.id("organizations"),
+      exerciseId: v.id("recoveryExercises"),
+      planId: v.id("continuityPlans"),
+      strategyId: v.optional(v.id("recoveryStrategies")),
+      recoveryGapId: v.optional(v.id("recoveryGaps")),
+      reference: v.string(), // EXF-001…
+      description: v.string(),
+      severity: bcmFindingSeverityValidator,
+      relatedObjective: v.optional(bcmMeasurementObjectiveValidator),
+      ownerUserId: v.id("users"),
+      ownerLabel: v.string(),
+      targetResolutionDate: v.number(),
+      correctiveAction: v.string(),
+      status: bcmFindingStatusValidator,
+      resolutionNotes: v.optional(v.string()),
+      resolutionEvidence: v.optional(v.string()),
+      resolvedAt: v.optional(v.number()),
+      resolvedByUserId: v.optional(v.id("users")),
+      resolvedByLabel: v.optional(v.string()),
+      verificationNotes: v.optional(v.string()),
+      verifiedAt: v.optional(v.number()),
+      verifiedByUserId: v.optional(v.id("users")),
+      verifiedByLabel: v.optional(v.string()),
+      acceptanceRationale: v.optional(v.string()),
+      acceptedAt: v.optional(v.number()),
+      acceptedByUserId: v.optional(v.id("users")),
+      acceptedByLabel: v.optional(v.string()),
+      isDemo: v.optional(v.boolean()),
+      ...auditFields,
+    })
+      .index("by_organization", ["organizationId"])
+      .index("by_organization_exercise", ["organizationId", "exerciseId"])
       .index("by_organization_plan", ["organizationId", "planId"])
       .index("by_organization_status", ["organizationId", "status"])
       .index("by_organization_reference", ["organizationId", "reference"]),
